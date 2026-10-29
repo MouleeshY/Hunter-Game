@@ -5,6 +5,8 @@ import type {
   MatchSnapshot,
 } from "../../rules/types";
 
+export type { MatchStatus, MatchConfig, LatLng } from "../../rules/types";
+
 /** One match. Kept deliberately fat here so the rules engine only needs this
  *   interface, not the underlying DB shape. */
 export interface MatchRow {

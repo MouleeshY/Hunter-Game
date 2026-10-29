@@ -1,5 +1,7 @@
 import type { Location } from "../../rules/types";
 
+export type { Location } from "../../rules/types";
+
 /** A stored position record. `recordedAt` is a server millisecond timestamp. */
 export interface LocationRow {
   id: string;

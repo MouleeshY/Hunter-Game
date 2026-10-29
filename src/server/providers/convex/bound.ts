@@ -15,9 +15,11 @@ import type {
   MatchConfig,
   ZoneSnapshot,
   LatLng,
-} from "../../repos/matchRepo";
+} from "../../rules/types";
 import type { PlayerRow, PlayerRepository } from "../../repos/playerRepo";
 import type { LocationRow, Location, LocationRepository } from "../../repos/locationRepo";
+
+export type { Location } from "../../repos/locationRepo";
 import type { TagRow, TagRepository } from "../../repos/tagRepo";
 import type { ComplaintRow, ComplaintRepository } from "../../repos/complaintRepo";
 import type { InvigilatorRow, InvigilatorRepository } from "../../repos/invigilatorRepo";
@@ -230,7 +232,7 @@ export const locationRepo: LocationRepository = {
       );
       if (row)
         map.set(pid, { lat: row.lat, lng: row.lng, recordedAtMs: row.recordedAt });
-    }
+          }
     return map;
   },
   insert: async (input) => {
