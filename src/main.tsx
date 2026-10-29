@@ -20,6 +20,7 @@ const Landing = lazy(() => import("./pages/Landing.tsx"));
 const AuthPage = lazy(() => import("./pages/Auth.tsx"));
 const Play = lazy(() => import("./pages/Play.tsx"));
 const Monitor = lazy(() => import("./pages/Monitor.tsx"));
+const Match = lazy(() => import("./pages/Match.tsx"));
 const Demo = lazy(() => import("./demo/Demo.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
@@ -138,6 +139,18 @@ createRoot(document.getElementById("root")!).render(
                     description="Shadow Hunt keeps your room and match history tied to an account."
                   >
                     <Play />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/match/:roomCode"
+                element={
+                  <RequireAuth
+                    redirectImmediately
+                    title="Sign in to open the map"
+                    description="The match map only shows positions to players and invigilators in that match."
+                  >
+                    <Match />
                   </RequireAuth>
                 }
               />

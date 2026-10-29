@@ -6,6 +6,7 @@ import {
   matchEndState,
   matchEndsAt,
   pingSchedule,
+  pingWindow,
   timerExpired,
   uploadSchedule,
   withinEventWindow,
@@ -207,6 +208,45 @@ describe("end conditions", () => {
     });
     expect(end.ended).toBe(false);
     expect(end.winner).toBeNull();
+  });
+});
+
+describe("ping window", () => {
+  const firstPing = START + config.headStartMinutes * MINUTE;
+
+  it("has no ping before the head start ends", () => {
+    const window = pingWindow({
+      startedAtMs: START,
+      nowMs: START + MINUTE,
+      config,
+    });
+    expect(window.lastPingAtMs).toBeNull();
+    expect(window.nextPingAtMs).toBe(firstPing);
+    expect(window.index).toBe(-1);
+  });
+
+  it("delivers the first ping at the end of the head start", () => {
+    const window = pingWindow({
+      startedAtMs: START,
+      nowMs: firstPing,
+      config,
+    });
+    expect(window.lastPingAtMs).toBe(firstPing);
+    expect(window.nextPingAtMs).toBe(
+      firstPing + config.pingIntervalMinutes * MINUTE,
+    );
+  });
+
+  it("steps every three minutes", () => {
+    const window = pingWindow({
+      startedAtMs: START,
+      nowMs: firstPing + 3 * config.pingIntervalMinutes * MINUTE - 1,
+      config,
+    });
+    expect(window.index).toBe(2);
+    expect(window.lastPingAtMs).toBe(
+      firstPing + 2 * config.pingIntervalMinutes * MINUTE,
+    );
   });
 });
 

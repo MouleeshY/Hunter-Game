@@ -66,6 +66,7 @@ function matchRow(m: Doc<"matches">): MatchRow {
     rosterLocked: m.rosterLocked,
     createdByUserId: m.createdBy ?? null,
     zoneCentre: { lat: m.zone.centreLat, lng: m.zone.centreLng },
+    lastPingAt: m.lastPingAt ?? null,
     organiserPosition: m.organiserPosition ?? null,
     initialRadiusMetres: m.zone.initialRadiusMetres,
     winner: m.winner ?? null,
@@ -90,7 +91,7 @@ function playerRow(p: Doc<"players">): PlayerRow {
     taggedAt: p.taggedAt ?? null,
     taggedById: p.taggedById ?? null,
     outsideSince: p.zoneBreach.outsideSince ?? null,
-    outsideSecondsTotal: 0,
+    outsideSecondsTotal: p.zoneBreach.outsideSecondsTotal ?? 0,
     chargedDrainTicks: p.zoneBreach.chargedDrainTicks,
     warnedAt: p.zoneBreach.warnedAt ?? null,
   };
@@ -106,6 +107,8 @@ function locationRow(l: Doc<"locations">): LocationRow {
     accuracyMetres: l.accuracyMetres ?? null,
     recordedAtMs: l.recordedAt,
     pingIndex: l.pingIndex,
+    suspicious: l.suspicious ?? false,
+    suspiciousReason: l.suspiciousReason ?? null,
   };
 }
 
@@ -179,6 +182,16 @@ export const matchRepo: MatchRepository = {
     return doc ? matchRow(doc) : null;
   },
 
+  listEndedBefore: async (ctx, endedBeforeMs) => {
+    const docs = await reader(ctx)
+      .query("matches")
+      .withIndex("by_status", (q) => q.eq("status", "ended"))
+      .collect();
+    return docs
+      .filter((doc) => (doc.endedAt ?? Infinity) < endedBeforeMs)
+      .map(matchRow);
+  },
+
   create: async (ctx, input) => {
     const db = writer(ctx);
     const createdAt = Date.now();
@@ -217,6 +230,7 @@ export const matchRepo: MatchRepository = {
       status?: MatchStatus;
       startedAt?: number;
       endsAt?: number;
+      lastPingAt?: number;
       winner?: "hunters" | "shadows";
       endedAt?: number;
       rosterLocked?: boolean;
@@ -229,6 +243,9 @@ export const matchRepo: MatchRepository = {
     }
     if (patch.endsAt !== undefined && patch.endsAt !== null) {
       next.endsAt = patch.endsAt;
+    }
+    if (patch.lastPingAt !== undefined && patch.lastPingAt !== null) {
+      next.lastPingAt = patch.lastPingAt;
     }
     if (patch.winner !== undefined && patch.winner !== null) {
       next.winner = patch.winner;
@@ -336,6 +353,33 @@ export const playerRepo: PlayerRepository = {
 
     await db.patch(id as Id<"players">, next);
   },
+
+  patchOutZoneState: async (ctx, id, state) => {
+    const db = writer(ctx);
+    const doc = await db.get(id as Id<"players">);
+    if (!doc) throw new Error(`Player ${id} not found.`);
+
+    const zoneBreach = {
+      ...doc.zoneBreach,
+      ...(state.outsideSince !== undefined
+        ? { outsideSince: state.outsideSince ?? undefined }
+        : {}),
+      ...(state.outsideSecondsTotal !== undefined
+        ? { outsideSecondsTotal: state.outsideSecondsTotal }
+        : {}),
+      ...(state.chargedDrainTicks !== undefined
+        ? { chargedDrainTicks: state.chargedDrainTicks }
+        : {}),
+      ...(state.warnedAt !== undefined
+        ? { warnedAt: state.warnedAt ?? undefined }
+        : {}),
+    };
+
+    await db.patch(id as Id<"players">, {
+      zoneBreach,
+      ...(state.status !== undefined ? { status: state.status } : {}),
+    });
+  },
 };
 
 // ---- LocationRepository ----------------------------------------------------
@@ -352,6 +396,20 @@ export const locationRepo: LocationRepository = {
       .order("desc")
       .first();
     return doc ? locationRow(doc) : null;
+  },
+
+  latestByPlayerBefore: async (ctx, matchId, playerId, atMs) => {
+    const docs = await reader(ctx)
+      .query("locations")
+      .withIndex("by_match_player_time", (q) =>
+        q
+          .eq("matchId", matchId as Id<"matches">)
+          .eq("playerId", playerId as Id<"players">)
+          .lte("recordedAt", atMs),
+      )
+      .order("desc")
+      .first();
+    return docs ? locationRow(docs) : null;
   },
 
   latestSnapshotByPlayers: async (ctx, matchId, playerIds) => {
@@ -384,10 +442,26 @@ export const locationRepo: LocationRepository = {
       accuracyMetres: input.accuracyMetres ?? undefined,
       recordedAt: input.recordedAt,
       pingIndex: input.pingIndex,
+      suspicious: input.suspicious ?? false,
+      suspiciousReason: input.suspiciousReason ?? undefined,
     });
     const doc = await db.get(id);
     if (!doc) throw new Error("Location insert did not persist.");
     return locationRow(doc);
+  },
+
+  deleteForMatch: async (ctx, matchId) => {
+    const db = writer(ctx);
+    const docs = await db
+      .query("locations")
+      .withIndex("by_match_player_time", (q) =>
+        q.eq("matchId", matchId as Id<"matches">),
+      )
+      .collect();
+    for (const doc of docs) {
+      await db.delete(doc._id);
+    }
+    return docs.length;
   },
 };
 

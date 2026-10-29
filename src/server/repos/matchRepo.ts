@@ -23,6 +23,8 @@ export interface MatchRow {
   rosterLocked: boolean;
   createdByUserId: string | null;
   zoneCentre: LatLng;
+  /** Most recent 3-minute ping; Hunters only see positions up to this. */
+  lastPingAt: number | null;
   /** Where the organiser stood at setup; used for re-rolls, never published. */
   organiserPosition: LatLng | null;
   initialRadiusMetres: number;
@@ -33,6 +35,11 @@ export interface MatchRow {
 export interface MatchRepository {
   findById(ctx: RepoContext, id: string): Promise<MatchRow | null>;
   findByRoomCode(ctx: RepoContext, roomCode: string): Promise<MatchRow | null>;
+  /** Matches that ended before `endedBeforeMs`, for position cleanup. */
+  listEndedBefore(
+    ctx: RepoContext,
+    endedBeforeMs: number,
+  ): Promise<MatchRow[]>;
   create(
     ctx: RepoContext,
     input: {
@@ -53,6 +60,7 @@ export interface MatchRepository {
       status?: MatchStatus;
       startedAt?: number | null;
       endsAt?: number | null;
+      lastPingAt?: number | null;
       winner?: "hunters" | "shadows" | null;
       endedAt?: number | null;
       rosterLocked?: boolean;

@@ -88,6 +88,43 @@ export function uploadSchedule(args: {
   return { allowed: true, reason: null, nextAllowedAtMs: nowMs };
 }
 
+export interface PingWindow {
+  /** The most recent ping the Hunters are allowed to see, or null. */
+  lastPingAtMs: number | null;
+  /** When the next ping lands. */
+  nextPingAtMs: number | null;
+  /** -1 before the first ping. */
+  index: number;
+}
+
+/**
+ * The 3-minute ping schedule. Pings start when the Shadow head start ends; the
+ * server uses `lastPingAtMs` to decide which Shadow positions a Hunter sees.
+ */
+export function pingWindow(args: {
+  startedAtMs: number | null;
+  nowMs: number;
+  config: MatchConfig;
+}): PingWindow {
+  const { startedAtMs, nowMs, config } = args;
+  if (startedAtMs === null) {
+    return { lastPingAtMs: null, nextPingAtMs: null, index: -1 };
+  }
+
+  const first = startedAtMs + config.headStartMinutes * 60_000;
+  if (nowMs < first) {
+    return { lastPingAtMs: null, nextPingAtMs: first, index: -1 };
+  }
+
+  const interval = config.pingIntervalMinutes * 60_000;
+  const index = Math.floor((nowMs - first) / interval);
+  return {
+    lastPingAtMs: first + index * interval,
+    nextPingAtMs: first + (index + 1) * interval,
+    index,
+  };
+}
+
 /** When the match timer expires. */
 export function matchEndsAt(startedAtMs: number, config: MatchConfig): number {
   return startedAtMs + config.matchDurationMinutes * 60_000;

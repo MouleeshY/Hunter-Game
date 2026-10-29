@@ -88,6 +88,53 @@ export function zoneRadiusAtMinute(args: {
   return Math.max(config.minZoneRadiusMetres, radius);
 }
 
+/** Moment of the next 10-minute shrink, or null before the start. */
+export function nextShrinkAtMs(
+  startedAtMs: number,
+  nowMs: number,
+  config: MatchConfig,
+): number {
+  const interval = config.zoneShrinkIntervalMinutes * 60_000;
+  const steps = Math.max(0, Math.floor((nowMs - startedAtMs) / interval));
+  return startedAtMs + (steps + 1) * interval;
+}
+
+/**
+ * A closed ring approximating a circle of `radiusMetres` around `centre`.
+ * Shared by the map overlay so the drawn zone and the rules agree.
+ */
+export function circlePolygon(
+  centre: LatLng,
+  radiusMetres: number,
+  steps = 64,
+): LatLng[] {
+  const points: LatLng[] = [];
+  const angular = (2 * Math.PI) / steps;
+  const lat1 = toRad(centre.lat);
+  const lng1 = toRad(centre.lng);
+  const angularDistance = radiusMetres / EARTH_RADIUS_M;
+
+  for (let i = 0; i < steps; i += 1) {
+    const bearing = i * angular;
+    const lat2 = Math.asin(
+      Math.sin(lat1) * Math.cos(angularDistance) +
+        Math.cos(lat1) * Math.sin(angularDistance) * Math.cos(bearing),
+    );
+    const lng2 =
+      lng1 +
+      Math.atan2(
+        Math.sin(bearing) * Math.sin(angularDistance) * Math.cos(lat1),
+        Math.cos(angularDistance) - Math.sin(lat1) * Math.sin(lat2),
+      );
+    points.push({
+      lat: (lat2 * 180) / Math.PI,
+      lng: (((lng2 * 180) / Math.PI + 540) % 360) - 180,
+    });
+  }
+  points.push(points[0]);
+  return points;
+}
+
 /**
  * How far the zone has contracted, 0 → 1. Drives both scoring curves:
  * alive points rise and tag points fall as this grows.

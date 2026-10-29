@@ -8,6 +8,9 @@ export interface LocationRow extends LocationSnapshot {
   id: string;
   matchId: string;
   playerId: string;
+  /** Spoof check result, shown to invigilators in Stage 4. */
+  suspicious: boolean;
+  suspiciousReason: string | null;
 }
 
 export interface LocationRepository {
@@ -16,6 +19,13 @@ export interface LocationRepository {
     ctx: RepoContext,
     matchId: string,
     playerId: string,
+  ): Promise<LocationRow | null>;
+  /** Latest position recorded at or before `atMs` (ping ghosts, delay). */
+  latestByPlayerBefore(
+    ctx: RepoContext,
+    matchId: string,
+    playerId: string,
+    atMs: number,
   ): Promise<LocationRow | null>;
   /** Latest position for several players, keyed by player id. */
   latestSnapshotByPlayers(
@@ -34,6 +44,10 @@ export interface LocationRepository {
       accuracyMetres: number | null;
       pingIndex: number;
       recordedAt: number;
+      suspicious?: boolean;
+      suspiciousReason?: string | null;
     },
   ): Promise<LocationRow>;
+  /** Delete a match's position history; scores are kept. */
+  deleteForMatch(ctx: RepoContext, matchId: string): Promise<number>;
 }

@@ -22,7 +22,6 @@ import {
   callSignError,
   displayNameError,
   statusForClock,
-  uploadSchedule,
   type DisplayNameMode,
   type MatchConfig,
   type MatchStatus,
@@ -551,77 +550,16 @@ export async function claimInvite(
   return { matchId: match.id, roomCode: match.roomCode };
 }
 
-// ---- position upload -------------------------------------------------------
+// ---- positions -------------------------------------------------------------
+//
+// Uploads, spoof checks, out-of-zone drain and the viewer-specific map query all
+// live in `positionService`; re-exported here so callers have one entry point.
 
-export interface PositionUploadResult {
-  stored: boolean;
-  reason: "not_started" | "too_soon" | "not_live" | null;
-  nextAllowedAtMs: number | null;
-}
-
-/**
- * Phones upload every few seconds while the match is live. This is separate
- * from the 3-minute ping that controls what Hunters see; the interval here is
- * `uploadIntervalSeconds`, never three minutes. Positions are stored server-side
- * and never returned publicly.
- */
-export async function uploadPosition(
-  ctx: RepoContext,
-  input: {
-    matchId: string;
-    userId: string;
-    lat: number;
-    lng: number;
-    accuracyMetres: number | null;
-  },
-): Promise<PositionUploadResult> {
-  const repos = getRepos();
-  assertLatLng(input.lat, input.lng);
-
-  const match = await repos.matches.findById(ctx, input.matchId);
-  if (!match) throw new Error("Match not found.");
-
-  const player = await repos.players.findByMatchAndUser(
-    ctx,
-    match.id,
-    input.userId,
-  );
-  if (!player) throw new Error("You are not in this match.");
-
-  const now = Date.now();
-  const status = effectiveStatus(match, now);
-
-  // Move the stored match to live the first time an upload lands after the head
-  // start. Pings and live positions only begin here.
-  if (status === "live" && match.status === "headstart") {
-    await repos.matches.patch(ctx, match.id, { status: "live" });
-  }
-
-  const last = await repos.locations.latestByPlayer(ctx, match.id, player.id);
-  const schedule = uploadSchedule({
-    status,
-    lastUploadAtMs: last?.recordedAtMs ?? null,
-    nowMs: now,
-    config: match.config,
-  });
-
-  if (!schedule.allowed) {
-    return {
-      stored: false,
-      reason: schedule.reason,
-      nextAllowedAtMs: schedule.nextAllowedAtMs,
-    };
-  }
-
-  await repos.locations.insert(ctx, {
-    matchId: match.id,
-    playerId: player.id,
-    lat: input.lat,
-    lng: input.lng,
-    accuracyMetres: input.accuracyMetres,
-    pingIndex: (last?.pingIndex ?? -1) + 1,
-    recordedAt: now,
-  });
-
-  return { stored: true, reason: null, nextAllowedAtMs: schedule.nextAllowedAtMs };
-}
+export {
+  uploadPosition,
+  getMapView,
+  type MapMarker,
+  type MapView,
+  type PositionUploadResult,
+  type ZoneBreach,
+} from "./positionService";

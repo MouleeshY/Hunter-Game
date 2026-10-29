@@ -71,6 +71,18 @@ export interface PlayerRepository {
       taggedById?: string | null;
     },
   ): Promise<void>;
+  /** Out-of-zone state written by the position-upload path. */
+  patchOutZoneState(
+    ctx: RepoContext,
+    id: string,
+    state: {
+      outsideSince?: number | null;
+      outsideSecondsTotal?: number;
+      chargedDrainTicks?: number;
+      warnedAt?: number | null;
+      status?: PlayerStatus;
+    },
+  ): Promise<void>;
 }
 
 export function playerSnapshotOf(row: PlayerRow): PlayerSnapshot {

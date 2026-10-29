@@ -43,6 +43,10 @@ function memoryRepos(): Repos {
   const repos: Repos = {
     matches: {
       findById: async (_ctx, id) => matches.get(id) ?? null,
+      listEndedBefore: async (_ctx, endedBeforeMs) =>
+        [...matches.values()].filter(
+          (m) => m.status === "ended" && (m.endedAt ?? Infinity) < endedBeforeMs,
+        ),
       findByRoomCode: async (_ctx, roomCode) =>
         [...matches.values()].find((m) => m.roomCode === roomCode) ?? null,
       create: async (_ctx, input) => {
@@ -59,6 +63,7 @@ function memoryRepos(): Repos {
           createdByUserId: input.createdByUserId,
           zoneCentre: input.zoneCentre,
           organiserPosition: input.organiserPosition,
+          lastPingAt: null,
           initialRadiusMetres: input.initialRadiusMetres,
           winner: null,
           endedAt: null,
@@ -122,11 +127,35 @@ function memoryRepos(): Repos {
         if (!row) throw new Error(`player ${id} not found`);
         Object.assign(row, patch);
       },
+      patchOutZoneState: async (_ctx, id, state) => {
+        const row = players.get(id);
+        if (!row) throw new Error(`player ${id} not found`);
+        if (state.outsideSince !== undefined) row.outsideSince = state.outsideSince;
+        if (state.outsideSecondsTotal !== undefined) {
+          row.outsideSecondsTotal = state.outsideSecondsTotal;
+        }
+        if (state.chargedDrainTicks !== undefined) {
+          row.chargedDrainTicks = state.chargedDrainTicks;
+        }
+        if (state.warnedAt !== undefined) row.warnedAt = state.warnedAt;
+        if (state.status !== undefined) row.status = state.status;
+      },
     },
     locations: {
       latestByPlayer: async (_ctx, matchId, playerId) => {
         const rows = [...locations.values()]
           .filter((l) => l.matchId === matchId && l.playerId === playerId)
+          .sort((a, b) => b.recordedAtMs - a.recordedAtMs);
+        return rows[0] ?? null;
+      },
+      latestByPlayerBefore: async (_ctx, matchId, playerId, atMs) => {
+        const rows = [...locations.values()]
+          .filter(
+            (l) =>
+              l.matchId === matchId &&
+              l.playerId === playerId &&
+              l.recordedAtMs <= atMs,
+          )
           .sort((a, b) => b.recordedAtMs - a.recordedAtMs);
         return rows[0] ?? null;
       },
@@ -150,9 +179,21 @@ function memoryRepos(): Repos {
           accuracyMetres: input.accuracyMetres,
           recordedAtMs: input.recordedAt,
           pingIndex: input.pingIndex,
+          suspicious: input.suspicious ?? false,
+          suspiciousReason: input.suspiciousReason ?? null,
         };
         locations.set(row.id, row);
         return row;
+      },
+      deleteForMatch: async (_ctx, matchId) => {
+        let deleted = 0;
+        for (const [id, row] of locations) {
+          if (row.matchId === matchId) {
+            locations.delete(id);
+            deleted += 1;
+          }
+        }
+        return deleted;
       },
     },
     tags: {

@@ -74,6 +74,8 @@ const schema = defineSchema(
       organiserPosition: v.optional(
         v.object({ lat: v.number(), lng: v.number() }),
       ),
+      /** Most recent 3-minute ping; Hunters only see positions up to this. */
+      lastPingAt: v.optional(v.number()),
       winner: v.optional(v.union(v.literal("hunters"), v.literal("shadows"))),
       endedAt: v.optional(v.number()),
     })
@@ -111,6 +113,7 @@ const schema = defineSchema(
       taggedById: v.optional(v.id("players")),
       zoneBreach: v.object({
         outsideSince: v.optional(v.number()),
+        outsideSecondsTotal: v.optional(v.number()),
         chargedDrainTicks: v.number(),
         warnedAt: v.optional(v.number()),
       }),
@@ -132,6 +135,9 @@ const schema = defineSchema(
       accuracyMetres: v.optional(v.number()),
       recordedAt: v.number(),
       pingIndex: v.number(),
+      /** Spoof check: impossible jump or accuracy. Stage 4 shows this. */
+      suspicious: v.optional(v.boolean()),
+      suspiciousReason: v.optional(v.string()),
     })
       .index("by_match_player_time", ["matchId", "playerId", "recordedAt"])
       .index("by_match_player_ping", ["matchId", "playerId", "pingIndex"]),

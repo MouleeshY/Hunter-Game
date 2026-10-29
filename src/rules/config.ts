@@ -35,6 +35,19 @@ export interface MatchConfig {
    */
   uploadIntervalSeconds: number;
 
+  /** [TUNED] Readings with accuracy worse than this are ignored on the phone. */
+  maxGpsAccuracyMetres: number;
+  /** [TUNED] Server spoof check: an accuracy this bad is impossible. */
+  impossibleAccuracyMetres: number;
+  /** [TUNED] Server spoof check: walking/running cannot beat this speed. */
+  maxSpeedMetresPerSecond: number;
+  /** [TUNED] How long a Hunter keeps seeing a ping ghost before it fades. */
+  pingGhostFadeSeconds: number;
+  /** [RULE] Spectators see everyone 60 seconds behind. */
+  spectatorDelaySeconds: number;
+  /** [TUNED] Position history is deleted this long after a match ends. */
+  positionRetentionHours: number;
+
   /** [RULE] The play area shrinks every 10 minutes. */
   zoneShrinkIntervalMinutes: number;
   /** [TUNED] Fraction of the radius kept after each shrink step. */
@@ -119,6 +132,12 @@ export const RULES_CONFIG: MatchConfig = {
   headStartMinutes: 5,
   pingIntervalMinutes: 3,
   uploadIntervalSeconds: 7,
+  maxGpsAccuracyMetres: 30,
+  impossibleAccuracyMetres: 500,
+  maxSpeedMetresPerSecond: 15,
+  pingGhostFadeSeconds: 45,
+  spectatorDelaySeconds: 60,
+  positionRetentionHours: 24,
 
   zoneShrinkIntervalMinutes: 10,
   zoneShrinkFactor: 0.85,

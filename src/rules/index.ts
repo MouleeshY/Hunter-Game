@@ -14,3 +14,4 @@ export * from "./match";
 export * from "./tags";
 export * from "./rooms";
 export * from "./teams";
+export * from "./visibility";

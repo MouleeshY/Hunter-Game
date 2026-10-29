@@ -9,8 +9,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RULES_CONFIG } from "@/rules/config";
+import { GameMap } from "@/components/map/GameMap";
 
-/* ------------------------------------------------------------------ *\n * Schemas\n * ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ *
+ * Schemas\n * ------------------------------------------------------------------ */
 
 const createMatchSchema = z.object({
   durationMinutes: z
@@ -35,7 +37,8 @@ const joinMatchSchema = z.object({
 type CreateMatchValues = z.infer<typeof createMatchSchema>;
 type JoinMatchValues = z.infer<typeof joinMatchSchema>;
 
-/* ------------------------------------------------------------------ *\n * Small pieces\n * ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ *
+ * Small pieces\n * ------------------------------------------------------------------ */
 
 function CopyButton({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
@@ -88,7 +91,8 @@ function useNow(intervalMs = 1000): number {
   return now;
 }
 
-/* ------------------------------------------------------------------ *\n * Create form — useForm lives at the top level of this component\n * ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ *
+ * Create form — useForm lives at the top level of this component\n * ------------------------------------------------------------------ */
 
 function CreateRoomForm({
   onCreated,
@@ -232,7 +236,8 @@ function CreateRoomForm({
   );
 }
 
-/* ------------------------------------------------------------------ *\n * Join form — useForm lives at the top level of this component\n * ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ *
+ * Join form — useForm lives at the top level of this component\n * ------------------------------------------------------------------ */
 
 function JoinRoomForm({
   onJoined,
@@ -377,7 +382,8 @@ function JoinRoomForm({
   );
 }
 
-/* ------------------------------------------------------------------ *\n * Lobby\n * ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ *
+ * Lobby\n * ------------------------------------------------------------------ */
 
 const STATUS_COPY: Record<string, string> = {
   lobby: "Lobby open — players can still join",
@@ -556,6 +562,19 @@ function LobbyView({
           Starting radius {Math.round(lobby.zone.initialRadiusMetres)} m ·{" "}
           {lobby.matchDurationMinutes} minute match
         </p>
+        <GameMap
+          centre={{
+            lat: lobby.zone.centreLat,
+            lng: lobby.zone.centreLng,
+          }}
+          radiusMetres={lobby.zone.initialRadiusMetres}
+          className="mt-4 h-56"
+        />
+        <div className="mt-4 flex justify-end">
+          <Button asChild variant="outline" className="h-9 uppercase tracking-[0.18em]">
+            <Link to={`/match/${lobby.roomCode}`}>Open match map</Link>
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -620,7 +639,8 @@ function LobbyView({
   );
 }
 
-/* ------------------------------------------------------------------ *\n * Page\n * ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ *
+ * Page\n * ------------------------------------------------------------------ */
 
 type View = "choose" | "creating" | "joining" | "lobby";
 

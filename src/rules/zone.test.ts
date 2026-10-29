@@ -1,7 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import { RULES_CONFIG } from "./config";
 import {
+  circlePolygon,
   distanceMetres,
+  nextShrinkAtMs,
   outOfZoneState,
   radiusForPlayerCount,
   zoneProgress,
@@ -278,6 +280,34 @@ describe("out-of-zone grace time", () => {
       secondsOutside: totalOutside,
     });
     expect(state.drainTicksOwed).toBe(expected);
+  });
+});
+
+describe("shrink schedule", () => {
+  const start = 1_700_000_000_000;
+  const interval = config.zoneShrinkIntervalMinutes * 60_000;
+
+  it("counts down to the next 10-minute step", () => {
+    expect(nextShrinkAtMs(start, start + 1_000, config)).toBe(start + interval);
+    expect(nextShrinkAtMs(start, start + interval, config)).toBe(
+      start + 2 * interval,
+    );
+    expect(nextShrinkAtMs(start, start + 25 * 60_000, config)).toBe(
+      start + 3 * interval,
+    );
+  });
+});
+
+describe("circle polygon", () => {
+  it("closes the ring and keeps every point on the radius", () => {
+    const centre = { lat: 51.5074, lng: -0.1278 };
+    const radius = 300;
+    const ring = circlePolygon(centre, radius, 32);
+    expect(ring).toHaveLength(33);
+    expect(ring[0]).toEqual(ring[ring.length - 1]);
+    for (const point of ring) {
+      expect(distanceMetres(centre, point)).toBeCloseTo(radius, 0);
+    }
   });
 });
 

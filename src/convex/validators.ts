@@ -45,6 +45,12 @@ export const matchConfigValidator = v.object({
   headStartMinutes: v.number(),
   pingIntervalMinutes: v.number(),
   uploadIntervalSeconds: v.number(),
+  maxGpsAccuracyMetres: v.number(),
+  impossibleAccuracyMetres: v.number(),
+  maxSpeedMetresPerSecond: v.number(),
+  pingGhostFadeSeconds: v.number(),
+  spectatorDelaySeconds: v.number(),
+  positionRetentionHours: v.number(),
 
   zoneShrinkIntervalMinutes: v.number(),
   zoneShrinkFactor: v.number(),
