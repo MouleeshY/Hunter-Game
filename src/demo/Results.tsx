@@ -8,7 +8,7 @@ import {
   msToGameMinutes,
   TOTAL_PLAYERS,
   type GameState,
-} from "@/lib/game";
+} from "@/demo/game";
 
 interface ResultsProps {
   state: GameState;

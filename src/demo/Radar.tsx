@@ -1,4 +1,4 @@
-import { WORLD, ZONE_CENTER, isLive, isRevealed, you, type GameState } from "@/lib/game";
+import { WORLD, ZONE_CENTER, isLive, isRevealed, you, type GameState } from "@/demo/game";
 
 /* ------------------------------------------------------------------ *
  * The plan view: a thin-lined city drawing with the radar laid over it.

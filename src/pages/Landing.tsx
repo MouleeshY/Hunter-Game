@@ -384,7 +384,7 @@ export default function Landing() {
               size="lg"
               className="h-11 bg-paper text-ink uppercase tracking-[0.18em] hover:bg-paper/90"
             >
-              <Link to="/play">Play the demo</Link>
+              <Link to="/demo">Play the demo</Link>
             </Button>
             <Button
               asChild

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Radar } from "@/components/play/Radar";
-import { Results } from "@/components/play/Results";
+import { Radar } from "@/demo/Radar";
+import { Results } from "@/demo/Results";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,7 +23,7 @@ import {
   you,
   type GameState,
   type RosterEntry,
-} from "@/lib/game";
+} from "@/demo/game";
 
 interface ArenaProps {
   code: string;

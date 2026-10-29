@@ -13,6 +13,7 @@ import "./index.css";
 const Landing = lazy(() => import("./pages/Landing.tsx"));
 const AuthPage = lazy(() => import("./pages/Auth.tsx"));
 const Play = lazy(() => import("./pages/Play.tsx"));
+const Demo = lazy(() => import("./demo/Demo.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 // Simple loading fallback for route transitions
@@ -133,6 +134,18 @@ createRoot(document.getElementById("root")!).render(
                     description="Shadow Hunt keeps your room and match history tied to an account."
                   >
                     <Play />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/demo"
+                element={
+                  <RequireAuth
+                    redirectImmediately
+                    title="Sign in to try the demo"
+                    description="The solo demo runs against your account so the match can be saved."
+                  >
+                    <Demo />
                   </RequireAuth>
                 }
               />

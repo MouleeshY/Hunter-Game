@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { TOTAL_PLAYERS, type RosterEntry } from "@/lib/game";
+import { TOTAL_PLAYERS, type RosterEntry } from "@/demo/game";
 
 interface LobbyProps {
   code: string;

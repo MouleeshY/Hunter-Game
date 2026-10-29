@@ -1,4 +1,11 @@
 /**
+ * ⚠ DEMO ONLY — ISOLATED FROM THE PRODUCT.
+ *
+ * This is the old V1 solo demo: bots, fake rooms and a simplified clock. It is
+ * reachable only from the `/demo` route. The real rules live in
+ * `src/convex/rules/` and run on the server with unit tests — nothing in this
+ * file is a rule, and nothing in the product imports it.
+ *
  * Shadow Hunt — match simulation.
  *
  * Everything here is pure TypeScript (no React, no aliases) so the whole match
