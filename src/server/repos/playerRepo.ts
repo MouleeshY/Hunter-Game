@@ -63,7 +63,7 @@ export interface PlayerRepository {
   ): Promise<void>;
 }
 
-export function snapshotOf(row: PlayerRow): PlayerSnapshot {
+export function playerSnapshotOf(row: PlayerRow): PlayerSnapshot {
   return {
     id: row.id,
     role: row.role,

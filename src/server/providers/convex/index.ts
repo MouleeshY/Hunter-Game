@@ -10,13 +10,7 @@
  * on Convex.
  */
 
-import { v } from "convex/values";
 import type { Id } from "../../../convex/_generated/dataModel";
-import {
-  internalMutation,
-  internalQuery,
-} from "../../../convex/_generated/server";
-import { ulid } from "ulid";
 import type {
   MatchRow,
   MatchRepository,
@@ -453,6 +447,10 @@ export function bindConvexTagFns(write: (doc: any) => Promise<any>) {
   _writeTag = write;
 }
 
+async function writeTag(doc: any): Promise<any> {
+  return _writeTag(doc);
+}
+
 // ---- ComplaintRepository ----------------------------------------------------
 
 export const complaintRepo: ComplaintRepository = {
@@ -524,6 +522,18 @@ export function bindConvexComplaintFns(
   _writeComplaint = write;
 }
 
+async function readOpenComplaintsByMatch(matchId: string): Promise<any[]> {
+  return _readOpenComplaintsByMatch(matchId as Id<"matches">);
+}
+
+async function readComplaint(id: string): Promise<any | null> {
+  return _readComplaint(id);
+}
+
+async function writeComplaint(doc: any): Promise<any> {
+  return _writeComplaint(doc);
+}
+
 // ---- InvigilatorRepository --------------------------------------------------
 
 export const invigilatorRepo: InvigilatorRepository = {
@@ -586,6 +596,28 @@ export function bindConvexInvigilatorFns(
   _writeInvigilator = write;
 }
 
+async function readInvigilatorByMatchAndUser(
+  matchId: string,
+  userId: string,
+): Promise<any | null> {
+  return _readInvigilatorByMatchAndUser(
+    matchId as Id<"matches">,
+    userId as Id<"users">,
+  );
+}
+
+async function readInvigilatorsByMatch(matchId: string): Promise<any[]> {
+  return _readInvigilatorsByMatch(matchId as Id<"matches">);
+}
+
+async function readInvigilator(id: string): Promise<any | null> {
+  return _readInvigilator(id);
+}
+
+async function writeInvigilator(doc: any): Promise<any> {
+  return _writeInvigilator(doc);
+}
+
 // ---- ScoreRepository --------------------------------------------------------
 
 export const scoreRepo: ScoreRepository = {
@@ -636,6 +668,20 @@ export function bindConvexScoreFns(
   _readScoreEventsByMatchAndPlayer = listByPlayer;
 }
 
+async function writeScoreEvent(doc: any): Promise<any> {
+  return _writeScoreEvent(doc);
+}
+
+async function readScoreEventsByMatchAndPlayer(
+  matchId: string,
+  playerId: string,
+): Promise<any[]> {
+  return _readScoreEventsByMatchAndPlayer(
+    matchId as Id<"matches">,
+    playerId as Id<"players">,
+  );
+}
+
 // ---- LeaderboardRepository --------------------------------------------------
 
 export const leaderboardRepo: LeaderboardRepository = {
@@ -655,7 +701,6 @@ export const leaderboardRepo: LeaderboardRepository = {
       });
     } else {
       await writeLeaderboard({
-        id: ulid(),
         matchId: input.matchId,
         playerId: input.playerId,
         displayName: input.displayName,
@@ -703,6 +748,24 @@ export function bindConvexLeaderboardFns(
   _readLeaderboardByMatchAndPlayer = byMatchAndPlayer;
   _readLeaderboardByMatch = byMatch;
   _writeLeaderboard = write;
+}
+
+async function readLeaderboardByMatchAndPlayer(
+  matchId: string,
+  playerId: string,
+): Promise<any | null> {
+  return _readLeaderboardByMatchAndPlayer(
+    matchId as Id<"matches">,
+    playerId,
+  );
+}
+
+async function readLeaderboardByMatch(matchId: string): Promise<any[]> {
+  return _readLeaderboardByMatch(matchId as Id<"matches">);
+}
+
+async function writeLeaderboard(doc: any): Promise<any> {
+  return _writeLeaderboard(doc);
 }
 
 // ---- public API surface ----------------------------------------------------

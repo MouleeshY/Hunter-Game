@@ -2,12 +2,8 @@ import { useState, useCallback } from "react";
 import { useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Label,
-  FormField,
-  FormItem,
-  FormMessage,
-} from "@/components/ui/form";
+import { FormField, FormItem, FormMessage } from "@/components/ui/form";
+import { Label } from "@/components/ui/label";
 import { UseFormReturn, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";

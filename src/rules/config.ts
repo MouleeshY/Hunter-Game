@@ -8,6 +8,8 @@
 //   [TUNED] not stated in the rules; provisional default picked so the engine
 //           can run at all. Ask before treating these as final.
 
+import type { PlayerMode } from "./types";
+
 export interface MatchConfig {
   /** [RULE] One match runs inside a 2–3 hour event window. */
   eventWindowMinutes: { min: number; max: number };

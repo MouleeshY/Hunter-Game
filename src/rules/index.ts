@@ -13,7 +13,3 @@
 
 export { RULES_CONFIG, type MatchConfig } from "./config";
 export * from "./types";
-export * from "./zone";
-export * from "./scoring";
-export * from "./match";
-export * from "./tags";

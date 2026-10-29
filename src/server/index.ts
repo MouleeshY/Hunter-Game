@@ -12,7 +12,7 @@
  * auth and ids.
  */
 
-import { repos } from "../providers/convex";
+import { repos } from "./providers/convex";
 import { selectProvider } from "./helpers";
 import type {
   MatchConfig,
