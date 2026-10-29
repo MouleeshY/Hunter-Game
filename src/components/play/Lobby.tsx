@@ -58,7 +58,7 @@ export function Lobby({ code, roster, onStart, onBack }: LobbyProps) {
             <Button
               type="button"
               variant="outline"
-              onClick={() => navigator.clipboard?.writeText(code)}
+              onClick={() => navigator.clipboard?.writeText(code).catch(() => {})}
             >
               Copy code
             </Button>

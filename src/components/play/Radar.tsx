@@ -142,19 +142,21 @@ export function Radar({ state, interactive, compact, onMove }: RadarProps) {
         strokeWidth={2}
         strokeDasharray="12 9"
       />
-      <text
-        x={ZONE_CENTER.x}
-        y={ZONE_CENTER.y - state.zone.r}
-        textAnchor="middle"
-        dy={-10}
-        className="font-mono"
-        fontSize={15}
-        letterSpacing="0.22em"
-        fill="var(--color-clay)"
-        opacity={0.9}
-      >
-        PLAYABLE AREA · {Math.round(state.zone.r * 2)} M
-      </text>
+      {!compact && (
+        <text
+          x={ZONE_CENTER.x}
+          y={ZONE_CENTER.y - state.zone.r}
+          textAnchor="middle"
+          dy={-10}
+          className="font-mono"
+          fontSize={15}
+          letterSpacing="0.22em"
+          fill="var(--color-clay)"
+          opacity={0.9}
+        >
+          PLAYABLE AREA · {Math.round(state.zone.r * 2)} M
+        </text>
+      )}
 
       {/* radar pulse */}
       {showPulse && (
@@ -325,7 +327,8 @@ export function Radar({ state, interactive, compact, onMove }: RadarProps) {
         ))}
 
       {/* drawing furniture: north arrow + scale bar */}
-      <g stroke="var(--color-ink)" strokeOpacity={0.45} fill="var(--color-ink)" fillOpacity={0.5}>
+      {!compact && (
+        <g stroke="var(--color-ink)" strokeOpacity={0.45} fill="var(--color-ink)" fillOpacity={0.5}>
         <line x1={WORLD - 44} y1={64} x2={WORLD - 44} y2={30} strokeWidth={1.4} />
         <path
           d={`M ${WORLD - 44} 22 l 6 12 l -6 -4 l -6 4 z`}
@@ -355,7 +358,8 @@ export function Radar({ state, interactive, compact, onMove }: RadarProps) {
         >
           100 M
         </text>
-      </g>
+        </g>
+      )}
     </svg>
   );
 }
