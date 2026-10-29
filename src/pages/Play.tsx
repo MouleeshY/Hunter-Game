@@ -306,8 +306,7 @@ export default function Play() {
             Shadow Hunt
           </p>
           <h1 className="mt-3 font-display text-4xl tracking-tight">
-            {view.kind === "creating" ||
-            view.kind === "created" ? (
+            {view.kind === "creating" || view.kind === "created" ? (
               <>Create a room</>
             ) : view.kind === "joining" || view.kind === "joined" ? (
               <>Join a room</>
@@ -402,7 +401,7 @@ export default function Play() {
           </div>
         )}
 
-        {view.kind === "creating" && (form) => (
+        {view.kind === "creating" && (
           <div className="max-w-xl">
             <div className="rounded-xl border border-hairline p-6">
               <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground mb-4">
@@ -411,12 +410,12 @@ export default function Play() {
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
-                  handleCreate(form);
+                  handleCreate(createForm);
                 }}
               >
                 <div className="grid gap-5 sm:grid-cols-2">
-                  <DurationField form={form} />
-                  <InvigilatorsField form={form} />
+                  <DurationField form={createForm} />
+                  <InvigilatorsField form={createForm} />
                 </div>
                 <div className="mt-5 flex justify-end">
                   <div className="flex gap-3">
@@ -443,20 +442,20 @@ export default function Play() {
           </div>
         )}
 
-        {view.kind === "created" && (created) => (
+        {view.kind === "created" && (
           <div className="max-w-xl text-center">
             <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
               Room created
             </p>
             <h1 className="mt-3 font-display text-4xl tracking-tight">
-              {created.roomCode}
+              {view.roomCode}
             </h1>
             <p className="mt-4 text-[14px] text-muted-foreground">
               Share this code with the people who will play. They will join
               through it and wait in the lobby.
             </p>
             <div className="mt-8 flex justify-center">
-              <CopyButton value={created.roomCode} />
+              <CopyButton value={view.roomCode} />
             </div>
             <div className="mt-10 flex flex-wrap justify-center gap-3">
               <Button
@@ -466,7 +465,7 @@ export default function Play() {
                 onClick={() =>
                   setView({
                     kind: "lobby",
-                    roomCode: created.roomCode,
+                    roomCode: view.roomCode,
                     players: [],
                   })
                 }
@@ -486,7 +485,7 @@ export default function Play() {
           </div>
         )}
 
-        {view.kind === "joining" && (form) => (
+        {view.kind === "joining" && (
           <div className="max-w-xl">
             <div className="rounded-xl border border-hairline p-6">
               <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground mb-4">
@@ -495,13 +494,13 @@ export default function Play() {
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
-                  handleJoin(form);
+                  handleJoin(joinForm);
                 }}
               >
                 <div className="grid gap-5">
-                  <RoomCodeField form={form} />
-                  <DisplayNameField form={form} />
-                  <CallSignField form={form} />
+                  <RoomCodeField form={joinForm} />
+                  <DisplayNameField form={joinForm} />
+                  <CallSignField form={joinForm} />
                 </div>
                 <div className="mt-5 flex justify-end">
                   <div className="flex gap-3">
@@ -528,13 +527,13 @@ export default function Play() {
           </div>
         )}
 
-        {view.kind === "joined" && (joined) => (
+        {view.kind === "joined" && (
           <div className="max-w-xl text-center">
             <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
-              Joined {joined.roomCode}
+              Joined {view.roomCode}
             </p>
             <h1 className="mt-3 font-display text-4xl tracking-tight">
-              {joined.roomCode}
+              {view.roomCode}
             </h1>
             <p className="mt-4 text-[14px] text-muted-foreground">
               You are in the lobby. The play area will be picked when the
@@ -548,7 +547,7 @@ export default function Play() {
                 onClick={() =>
                   setView({
                     kind: "lobby",
-                    roomCode: joined.roomCode,
+                    roomCode: view.roomCode,
                     players: [],
                   })
                 }
@@ -568,8 +567,8 @@ export default function Play() {
           </div>
         )}
 
-        {view.kind === "lobby" && (lobby) => (
-          <LobbyView roomCode={lobby.roomCode} players={lobby.players} />
+        {view.kind === "lobby" && (
+          <LobbyView roomCode={view.roomCode} players={view.players} />
         )}
       </main>
     </div>
