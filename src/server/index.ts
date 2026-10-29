@@ -1,251 +1,627 @@
 /**
- * Server facade for match lifecycle.
+ * Match lifecycle service.
  *
- * This module owns the high-level server use-cases that involve more than one
- * repository: creating a match, joining a match, starting it, uploading a
- * position, and the simple read-side helpers the front end will ask for. All
- * reads and writes go through the repository interfaces, so the rules engine
- * and the repository implementations never leak Convex into each other.
- *
- * The actual mutations / queries exposed to Convex live in `src/convex/matches.ts`
- * and the new room-mutation module. They call into this module after resolving
- * auth and ids.
+ * Every high-level use-case that touches more than one repository lives here:
+ * creating a room, joining it, locking the roster, starting the match, accepting
+ * an invigilator invite, and uploading a position. All reads and writes go
+ * through `getRepos()`, so the database can be swapped by DATA_PROVIDER without
+ * touching this file. The rules themselves come from `src/rules` and are pure.
  */
+import {
+  assignTeams,
+  canStartMatch,
+  generateInviteCode,
+  generateRoomCode,
+  joinPolicy,
+  joinRefusalMessage,
+  normalizeRoomCode,
+  radiusForPlayerCount,
+  randomZoneCentre,
+  RULES_CONFIG,
+  roomCodeError,
+  callSignError,
+  displayNameError,
+  statusForClock,
+  uploadSchedule,
+  type DisplayNameMode,
+  type MatchConfig,
+  type MatchStatus,
+  type Role,
+} from "../rules";
+import { getRepos } from "./providers";
+import type { MatchRow, RepoContext } from "./repos";
 
-import { repos } from "./providers/convex";
-import { selectProvider } from "./helpers";
-import type {
-  MatchConfig,
-  MatchStatus,
-  PlayerStatus,
-  PlayerMode,
-  LatLng,
-} from "../rules/types";
-import { RULES_CONFIG } from "../rules/config";
-import { assignTeams, teamConfigForCount, randomZoneCentre } from "./teamOps";
-import { makeId } from "../lib/id";
+// ---- shared helpers --------------------------------------------------------
 
-// ---- provider dispatch ------------------------------------------------------
-
-function provider(): "convex" | "supabase" {
-  return selectProvider();
+function randomUnit(): number {
+  const buffer = new Uint32Array(1);
+  globalThis.crypto.getRandomValues(buffer);
+  return buffer[0] / 2 ** 32;
 }
 
-// ---- create match -----------------------------------------------------------
+function randomToken(bytes: number): string {
+  const buffer = new Uint8Array(bytes);
+  globalThis.crypto.getRandomValues(buffer);
+  return Array.from(buffer, (b) => b.toString(16).padStart(2, "0")).join("");
+}
 
-export function createMatch(input: {
-  createdByUserId: string | null;
-  matchDurationMinutes: number;
-  invigilators: { displayName: string }[];
-  organiserLat: number;
-  organiserLng: number;
-  rerollCentre?: boolean;
-  previousCentre?: LatLng | null;
-}): {
+function assertLatLng(lat: number, lng: number): void {
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+    throw new Error("Latitude must be between -90 and 90.");
+  }
+  if (!Number.isFinite(lng) || lng < -180 || lng > 180) {
+    throw new Error("Longitude must be between -180 and 180.");
+  }
+}
+
+/** The stage the clock has moved the match to. */
+export function effectiveStatus(match: MatchRow, nowMs: number): MatchStatus {
+  return statusForClock({
+    stored: match.status,
+    startedAtMs: match.startedAt,
+    endsAtMs: match.endsAt,
+    nowMs,
+    config: match.config,
+  });
+}
+
+async function requireMatchByCode(
+  ctx: RepoContext,
+  roomCode: string,
+): Promise<MatchRow> {
+  const code = normalizeRoomCode(roomCode);
+  const match = await getRepos().matches.findByRoomCode(ctx, code);
+  if (!match) throw new Error(joinRefusalMessage("unknown_room") ?? "Unknown room.");
+  return match;
+}
+
+// ---- create match ----------------------------------------------------------
+
+export interface CreatedMatch {
   matchId: string;
   roomCode: string;
   zone: { centreLat: number; centreLng: number; initialRadiusMetres: number };
-} {
-  const providerName = provider();
-  if (providerName !== "convex") {
+  invigilators: { displayName: string; inviteCode: string }[];
+}
+
+/**
+ * Organiser creates a room: match length, 2–3 named invigilators, and a random
+ * centre within 500 m of the organiser's position. Players have not joined yet,
+ * so the starting radius comes from the smallest tier and is recalculated at
+ * start from the real player count.
+ */
+export async function createMatch(
+  ctx: RepoContext,
+  input: {
+    createdByUserId: string;
+    matchDurationMinutes: number;
+    organiserLat: number;
+    organiserLng: number;
+    invigilatorNames: string[];
+  },
+): Promise<CreatedMatch> {
+  const repos = getRepos();
+  const config: MatchConfig = RULES_CONFIG;
+
+  if (
+    input.matchDurationMinutes < config.matchDurationRangeMinutes.min ||
+    input.matchDurationMinutes > config.matchDurationRangeMinutes.max
+  ) {
     throw new Error(
-      `DATA_PROVIDER=${providerName} is not wired yet; expected convex.`,
+      `Match length must be between ${config.matchDurationRangeMinutes.min} and ${config.matchDurationRangeMinutes.max} minutes.`,
     );
   }
 
+  const names = input.invigilatorNames
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0);
   if (
-    input.matchDurationMinutes < RULES_CONFIG.eventWindowMinutes.min ||
-    input.matchDurationMinutes > RULES_CONFIG.eventWindowMinutes.max
+    names.length < config.invigilatorCount.min ||
+    names.length > config.invigilatorCount.max
   ) {
-    throw new RangeError(
-      `matchDurationMinutes must be between ${RULES_CONFIG.eventWindowMinutes.min} and ${RULES_CONFIG.eventWindowMinutes.max}.`,
+    throw new Error(
+      `A match needs between ${config.invigilatorCount.min} and ${config.invigilatorCount.max} invigilators.`,
     );
   }
 
-  const invigilatorCount = input.invigilators.length;
-  if (
-    invigilatorCount < RULES_CONFIG.invigilatorCount.min ||
-    invigilatorCount > RULES_CONFIG.invigilatorCount.max
-  ) {
-    throw new RangeError(
-      `A match needs between ${RULES_CONFIG.invigilatorCount.min} and ${RULES_CONFIG.invigilatorCount.max} invigilators. Requested ${invigilatorCount}.`,
-    );
-  }
+  assertLatLng(input.organiserLat, input.organiserLng);
 
-  // Centre is picked within a configurable distance of the organiser. If the
-  // organiser asks for a re-roll we keep trying until we get a fresh centre.
   const centre = randomZoneCentre({
     organiserLat: input.organiserLat,
     organiserLng: input.organiserLng,
-    maxDistanceMetres: RULES_CONFIG.centrePickDistanceMetres,
-    avoid: rerollCondition(input.rerollCentre, input.previousCentre),
+    maxDistanceMetres: config.centrePickDistanceMetres,
   });
 
-  // At this stage we do not yet have players, but players are the base from
-  // which the radius table and team split are derived. When the roster lands
-  // we store the config snapshot.
-  const configSnapshot: MatchConfig = {
-    ...RULES_CONFIG,
-    matchDurationMinutes: input.matchDurationMinutes,
-  };
+  // Room codes are short, so retry until the code is free.
+  let roomCode = "";
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const candidate = generateRoomCode(randomUnit, config.roomCodeLength);
+    const existing = await repos.matches.findByRoomCode(ctx, candidate);
+    if (!existing) {
+      roomCode = candidate;
+      break;
+    }
+  }
+  if (roomCode === "") {
+    throw new Error("Could not allocate a room code. Please try again.");
+  }
 
-  const createdAt = Date.now();
-  const doc = repos.matches.create({
-    status: "lobby" as MatchStatus,
-    config: configSnapshot,
+  const initialRadiusMetres = radiusForPlayerCount(
+    config.minPlayers,
+    config,
+  );
+
+  const match = await repos.matches.create(ctx, {
+    roomCode,
+    status: "lobby",
+    config: { ...config, matchDurationMinutes: input.matchDurationMinutes },
     createdByUserId: input.createdByUserId,
     zoneCentre: centre,
-    initialRadiusMetres:
-      configSnapshot.radiusTable[configSnapshot.radiusTable.length - 1]
-        .radiusMetres,
-    eventWindowMinutesMax: configSnapshot.eventWindowMinutes.max,
-    matchDurationMinutes: input.matchDurationMinutes,
+    organiserPosition: {
+      lat: input.organiserLat,
+      lng: input.organiserLng,
+    },
+    initialRadiusMetres,
+    eventWindowMinutesMax: config.eventWindowMinutes.max,
   });
 
-  const roomCode = roomCodeFromCreatedAt(createdAt);
+  const invigilators: { displayName: string; inviteCode: string }[] = [];
+  for (const displayName of names) {
+    const inviteCode = generateInviteCode(randomUnit, config.inviteCodeLength);
+    await repos.invigilators.create(ctx, {
+      matchId: match.id,
+      displayName,
+      inviteCode,
+      addedAt: Date.now(),
+    });
+    invigilators.push({ displayName, inviteCode });
+  }
+
   return {
-    matchId: "",
-    roomCode,
+    matchId: match.id,
+    roomCode: match.roomCode,
     zone: {
       centreLat: centre.lat,
       centreLng: centre.lng,
-      initialRadiusMetres:
-        configSnapshot.radiusTable[configSnapshot.radiusTable.length - 1]
-          .radiusMetres,
+      initialRadiusMetres,
     },
+    invigilators,
   };
 }
 
-function rerollCondition(
-  reroll: boolean | undefined,
-  previous: LatLng | null | undefined,
-): LatLng | null {
-  if (!reroll) return null;
-  if (previous == null) return null;
-  return previous;
-}
-
-// ---- room code --------------------------------------------------------------
-
-/** 5-character code derived from the creation time so it is stable, offline-
- *   verifiable, and easy to type. */
-export function roomCodeFromCreatedAt(createdAt: number): string {
-  const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
-  let n = (createdAt / 1000) >>> 0;
-  let code = "";
-  for (let i = 0; i < 5; i++) {
-    code += alphabet[n % alphabet.length];
-    n = Math.floor(n / alphabet.length);
+/** Re-roll the play area, keeping it within the configured distance. */
+export async function rerollCentre(
+  ctx: RepoContext,
+  input: { matchId: string; organiserUserId: string },
+): Promise<{ centreLat: number; centreLng: number }> {
+  const repos = getRepos();
+  const match = await repos.matches.findById(ctx, input.matchId);
+  if (!match) throw new Error("Match not found.");
+  if (match.createdByUserId !== input.organiserUserId) {
+    throw new Error("Only the organiser can re-roll the play area.");
   }
-  return code;
-}
-
-export function validateRoomCode(code: string): string {
-  if (typeof code !== "string") return "Room code must be text.";
-  if (code.length !== 5) return "Room code is 5 characters.";
-  const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
-  for (const ch of code) {
-    if (!alphabet.includes(ch))
-      return "Room code uses the on-screen character set.";
+  if (match.status !== "lobby" && match.status !== "locked") {
+    throw new Error("The play area is fixed once the match starts.");
   }
-  return "";
+
+  // Re-rolls stay within the configured distance of the organiser, not of the
+  // previous centre, so repeated re-rolls cannot drift.
+  const anchor = match.organiserPosition ?? match.zoneCentre;
+  const centre = randomZoneCentre({
+    organiserLat: anchor.lat,
+    organiserLng: anchor.lng,
+    maxDistanceMetres: match.config.centrePickDistanceMetres,
+    avoid: match.zoneCentre,
+  });
+  await repos.matches.patch(ctx, match.id, { zoneCentre: centre });
+  return { centreLat: centre.lat, centreLng: centre.lng };
 }
 
-// ---- join match -------------------------------------------------------------
+// ---- join ------------------------------------------------------------------
 
-export function joinMatch(input: {
+export interface JoinedMatch {
   matchId: string;
-  userId: string;
-  displayName: string;
-  displayNameMode: "nickname" | "real";
-  callSign: string;
-}): { playerId: string; qrToken: string; displayName: string } {
-  const providerName = provider();
-  if (providerName !== "convex") {
-    throw new Error("DATA_PROVIDER is not wired for this path yet.");
-  }
-
-  // Validated on the server, too — the phone never trusts itself.
-  const nameError = validateDisplayName(input.displayName);
-  if (nameError) throw new Error(nameError);
-  const callSignError = validateCallSign(input.callSign);
-  if (callSignError) throw new Error(callSignError);
-
-  const playerId = makeId(Date.now(), 0);
-  const qrToken = makeQRToken(playerId);
-  return { playerId, qrToken, displayName: input.displayName };
-}
-
-function validateDisplayName(name: string): string {
-  if (typeof name !== "string") return "Display name is required.";
-  const t = name.trim();
-  if (t.length === 0) return "Display name is required.";
-  if (t.length > 60) return "Display name is too long.";
-  return "";
-}
-
-function validateCallSign(callSign: string): string {
-  if (typeof callSign !== "string") return "Call sign is required.";
-  const t = callSign.trim();
-  if (t.length === 0) return "Call sign is required.";
-  if (t.length > 32) return "Call sign is too long.";
-  return "";
-}
-
-// ---- QR token ---------------------------------------------------------------
-
-/** Plain, per-match, per-player token. No secrets, no photos, no personal data. */
-export function makeQRToken(playerId: string): string {
-  // Deterministic enough to be stable for the match and opaque to anyone who
-  // does not have the player id. The real value is rendered as a QR code on the
-  // phone; what we store is the token the server recognises.
-  let h = 0;
-  for (let i = 0; i < playerId.length; i++) {
-    h = (Math.imul(h ^ playerId.charCodeAt(i), 2654435761) >>> 0) >>> 0;
-  }
-  return (
-    "SH-" +
-    h.toString(36).padStart(6, "0") +
-    "-" +
-    Date.now().toString(36).slice(-4)
-  );
-}
-
-// ---- team assignment -------------------------------------------------------
-
-export { assignTeams, teamConfigForCount, randomZoneCentre } from "./teamOps";
-
-// ---- position upload --------------------------------------------------------
-
-export function positionUploadRecord(input: {
-  matchId: string;
+  roomCode: string;
   playerId: string;
-  lat: number;
-  lng: number;
-  accuracyMetres: number | null;
-  reportedAtClientMs: number;
-}): void {
-  const providerName = provider();
-  if (providerName !== "convex") {
-    throw new Error("DATA_PROVIDER is not wired for this path yet.");
+}
+
+/**
+ * Join with a five-character code and a call sign, storing the leaderboard name
+ * choice (nickname or real name). Joining is refused once the roster is locked.
+ */
+export async function joinMatch(
+  ctx: RepoContext,
+  input: {
+    userId: string;
+    roomCode: string;
+    callSign: string;
+    displayName: string;
+    displayNameMode: DisplayNameMode;
+    playerMode: "spectator" | "hunter";
+  },
+): Promise<JoinedMatch> {
+  const repos = getRepos();
+  const codeError = roomCodeError(input.roomCode, RULES_CONFIG);
+  if (codeError) throw new Error(codeError);
+
+  const match = await requireMatchByCode(ctx, input.roomCode);
+  const players = await repos.players.listByMatch(ctx, match.id);
+  const existing =
+    players.find((player) => player.userId === input.userId) ?? null;
+
+  const callSign = input.callSign.trim();
+  const displayName = input.displayName.trim();
+  const callSignInputError = callSignError(callSign);
+  if (callSignInputError) throw new Error(callSignInputError);
+  const displayNameInputError = displayNameError(displayName);
+  if (displayNameInputError) throw new Error(displayNameInputError);
+
+  const refusal = joinPolicy({
+    status: effectiveStatus(match, Date.now()),
+    rosterLocked: match.rosterLocked,
+    playerCount: players.length,
+    alreadyJoined: existing !== null,
+    callSignTaken: players.some(
+      (player) => player.callSign.toLowerCase() === callSign.toLowerCase(),
+    ),
+    config: match.config,
+  });
+  if (refusal) {
+    throw new Error(joinRefusalMessage(refusal) ?? "Cannot join this room.");
   }
 
-  if (!Number.isFinite(input.lat) || input.lat < -90 || input.lat > 90) {
-    throw new Error("Latitude out of range.");
+  const player = await repos.players.create(ctx, {
+    matchId: match.id,
+    userId: input.userId,
+    // Roles are random and only written when the match starts. Until then the
+    // lobby shows nobody a team.
+    role: "shadow" satisfies Role,
+    mode: input.playerMode,
+    status: "active",
+    callSign,
+    displayName,
+    displayNameMode: input.displayNameMode,
+    qrToken: `SH-${randomToken(8)}`,
+    joinedAt: Date.now(),
+  });
+
+  return { matchId: match.id, roomCode: match.roomCode, playerId: player.id };
+}
+
+// ---- lobby -----------------------------------------------------------------
+
+export interface LobbyPlayer {
+  id: string;
+  callSign: string;
+  joinedAt: number;
+}
+
+export interface LobbyInvigilator {
+  displayName: string;
+  /** Only shown to the organiser. */
+  inviteCode: string | null;
+}
+
+export interface LobbyView {
+  matchId: string;
+  roomCode: string;
+  status: MatchStatus;
+  matchDurationMinutes: number;
+  playerCount: number;
+  minPlayers: number;
+  softCapPlayers: number;
+  canStart: boolean;
+  startBlockedReason: string | null;
+  zone: { centreLat: number; centreLng: number; initialRadiusMetres: number };
+  players: LobbyPlayer[];
+  invigilators: LobbyInvigilator[];
+  me: {
+    isOrganiser: boolean;
+    isInvigilator: boolean;
+    playerId: string | null;
+    callSign: string | null;
+    displayNameMode: DisplayNameMode | null;
+  };
+  startedAt: number | null;
+  endsAt: number | null;
+  headStartEndsAt: number | null;
+}
+
+export async function getLobby(
+  ctx: RepoContext,
+  input: { userId: string; roomCode: string },
+): Promise<LobbyView> {
+  const repos = getRepos();
+  const match = await requireMatchByCode(ctx, input.roomCode);
+  const now = Date.now();
+  const status = effectiveStatus(match, now);
+
+  const [players, invigilators, meAsInvigilator] = await Promise.all([
+    repos.players.listByMatch(ctx, match.id),
+    repos.invigilators.listByMatch(ctx, match.id),
+    repos.invigilators.findByMatchAndUser(ctx, match.id, input.userId),
+  ]);
+
+  const me = players.find((player) => player.userId === input.userId) ?? null;
+  const isOrganiser = match.createdByUserId === input.userId;
+  const start = canStartMatch({
+    status,
+    playerCount: players.length,
+    config: match.config,
+  });
+
+  return {
+    matchId: match.id,
+    roomCode: match.roomCode,
+    status,
+    matchDurationMinutes: match.config.matchDurationMinutes,
+    playerCount: players.length,
+    minPlayers: match.config.minPlayers,
+    softCapPlayers: match.config.softCapPlayers,
+    canStart: isOrganiser && start.allowed,
+    startBlockedReason: isOrganiser ? start.reason : "Only the organiser can start.",
+    zone: {
+      centreLat: match.zoneCentre.lat,
+      centreLng: match.zoneCentre.lng,
+      initialRadiusMetres: match.initialRadiusMetres,
+    },
+    players: players.map((player) => ({
+      id: player.id,
+      callSign: player.callSign,
+      joinedAt: player.joinedAt,
+    })),
+    invigilators: invigilators.map((invigilator) => ({
+      displayName: invigilator.displayName,
+      inviteCode: isOrganiser ? invigilator.inviteCode : null,
+    })),
+    me: {
+      isOrganiser,
+      isInvigilator: meAsInvigilator !== null,
+      playerId: me?.id ?? null,
+      callSign: me?.callSign ?? null,
+      displayNameMode: me?.displayNameMode ?? null,
+    },
+    startedAt: match.startedAt,
+    endsAt: match.endsAt,
+    headStartEndsAt:
+      match.startedAt === null
+        ? null
+        : match.startedAt + match.config.headStartMinutes * 60_000,
+  };
+}
+
+// ---- lock / unlock ---------------------------------------------------------
+
+async function organiserMatch(
+  ctx: RepoContext,
+  matchId: string,
+  userId: string,
+): Promise<MatchRow> {
+  const repos = getRepos();
+  const match = await repos.matches.findById(ctx, matchId);
+  if (!match) throw new Error("Match not found.");
+  if (match.createdByUserId !== userId) {
+    throw new Error("Only the organiser can do that.");
   }
-  if (!Number.isFinite(input.lng) || input.lng < -180 || input.lng > 180) {
-    throw new Error("Longitude out of range.");
+  return match;
+}
+
+/** Lock or unlock the roster before the match starts. */
+export async function setRosterLock(
+  ctx: RepoContext,
+  input: { matchId: string; userId: string; locked: boolean },
+): Promise<MatchStatus> {
+  const repos = getRepos();
+  const match = await organiserMatch(ctx, input.matchId, input.userId);
+  const status = effectiveStatus(match, Date.now());
+
+  if (status !== "lobby" && status !== "locked") {
+    throw new Error("The roster is fixed once the match has started.");
   }
 
-  // Store it server-side; the phone keeps uploading every 5–10 seconds and the
-  // server decides what to reveal. Nothing here enforces the 3-minute ping —
-  // that is purely a reveal rule.
-  repos.locations.insert({
-    matchId: input.matchId,
-    playerId: input.playerId,
+  const next: MatchStatus = input.locked ? "locked" : "lobby";
+  await repos.matches.patch(ctx, match.id, {
+    status: next,
+    rosterLocked: input.locked,
+  });
+  return next;
+}
+
+// ---- start -----------------------------------------------------------------
+
+export interface StartedMatch {
+  matchId: string;
+  status: MatchStatus;
+  startedAt: number;
+  endsAt: number;
+  headStartEndsAt: number;
+  hunters: number;
+  shadows: number;
+  initialRadiusMetres: number;
+}
+
+/**
+ * Start the match: assign teams at random from the config ratio, lock the
+ * roster, begin the five-minute head start and set the timer.
+ */
+export async function startMatch(
+  ctx: RepoContext,
+  input: { matchId: string; userId: string; seed?: number },
+): Promise<StartedMatch> {
+  const repos = getRepos();
+  const match = await organiserMatch(ctx, input.matchId, input.userId);
+  const players = await repos.players.listByMatch(ctx, match.id);
+  const status = effectiveStatus(match, Date.now());
+
+  const start = canStartMatch({
+    status,
+    playerCount: players.length,
+    config: match.config,
+  });
+  if (!start.allowed) throw new Error(start.reason ?? "Cannot start yet.");
+
+  const now = Date.now();
+  const seed = input.seed ?? Math.floor(randomUnit() * 2 ** 31);
+  const assignments = assignTeams(players.length, seed, match.config);
+  const initialRadiusMetres = radiusForPlayerCount(
+    players.length,
+    match.config,
+  );
+
+  // Teams are assigned once, here, and the roster is locked at the same moment.
+  for (let i = 0; i < players.length; i += 1) {
+    await repos.players.patch(ctx, players[i].id, {
+      role: assignments[i].role,
+      status: "active",
+    });
+  }
+
+  const endsAt = now + match.config.matchDurationMinutes * 60_000;
+  const headStartEndsAt = now + match.config.headStartMinutes * 60_000;
+
+  await repos.matches.patch(ctx, match.id, {
+    status: "headstart",
+    startedAt: now,
+    endsAt,
+    rosterLocked: true,
+    initialRadiusMetres,
+  });
+
+  return {
+    matchId: match.id,
+    status: "headstart",
+    startedAt: now,
+    endsAt,
+    headStartEndsAt,
+    hunters: assignments.filter((a) => a.role === "hunter").length,
+    shadows: assignments.filter((a) => a.role === "shadow").length,
+    initialRadiusMetres,
+  };
+}
+
+// ---- invigilators ----------------------------------------------------------
+
+export interface InvitePreview {
+  matchId: string;
+  roomCode: string;
+  displayName: string;
+  status: MatchStatus;
+}
+
+/** Let an invigilator see the invite before accepting it. */
+export async function previewInvite(
+  ctx: RepoContext,
+  inviteCode: string,
+): Promise<InvitePreview> {
+  const repos = getRepos();
+  const invite = await repos.invigilators.findByInviteCode(
+    ctx,
+    inviteCode.trim().toUpperCase(),
+  );
+  if (!invite) throw new Error("That invite code is not valid.");
+  const match = await repos.matches.findById(ctx, invite.matchId);
+  if (!match) throw new Error("Match not found.");
+  return {
+    matchId: match.id,
+    roomCode: match.roomCode,
+    displayName: invite.displayName,
+    status: effectiveStatus(match, Date.now()),
+  };
+}
+
+/** Accept an invite: the invigilator is attached to the match, not as a player. */
+export async function claimInvite(
+  ctx: RepoContext,
+  input: { userId: string; inviteCode: string },
+): Promise<{ matchId: string; roomCode: string }> {
+  const repos = getRepos();
+  const invite = await repos.invigilators.findByInviteCode(
+    ctx,
+    input.inviteCode.trim().toUpperCase(),
+  );
+  if (!invite) throw new Error("That invite code is not valid.");
+  if (invite.userId !== null && invite.userId !== input.userId) {
+    throw new Error("That invite has already been accepted.");
+  }
+
+  const match = await repos.matches.findById(ctx, invite.matchId);
+  if (!match) throw new Error("Match not found.");
+
+  await repos.invigilators.claim(ctx, invite.id, input.userId);
+  return { matchId: match.id, roomCode: match.roomCode };
+}
+
+// ---- position upload -------------------------------------------------------
+
+export interface PositionUploadResult {
+  stored: boolean;
+  reason: "not_started" | "too_soon" | "not_live" | null;
+  nextAllowedAtMs: number | null;
+}
+
+/**
+ * Phones upload every few seconds while the match is live. This is separate
+ * from the 3-minute ping that controls what Hunters see; the interval here is
+ * `uploadIntervalSeconds`, never three minutes. Positions are stored server-side
+ * and never returned publicly.
+ */
+export async function uploadPosition(
+  ctx: RepoContext,
+  input: {
+    matchId: string;
+    userId: string;
+    lat: number;
+    lng: number;
+    accuracyMetres: number | null;
+  },
+): Promise<PositionUploadResult> {
+  const repos = getRepos();
+  assertLatLng(input.lat, input.lng);
+
+  const match = await repos.matches.findById(ctx, input.matchId);
+  if (!match) throw new Error("Match not found.");
+
+  const player = await repos.players.findByMatchAndUser(
+    ctx,
+    match.id,
+    input.userId,
+  );
+  if (!player) throw new Error("You are not in this match.");
+
+  const now = Date.now();
+  const status = effectiveStatus(match, now);
+
+  // Move the stored match to live the first time an upload lands after the head
+  // start. Pings and live positions only begin here.
+  if (status === "live" && match.status === "headstart") {
+    await repos.matches.patch(ctx, match.id, { status: "live" });
+  }
+
+  const last = await repos.locations.latestByPlayer(ctx, match.id, player.id);
+  const schedule = uploadSchedule({
+    status,
+    lastUploadAtMs: last?.recordedAtMs ?? null,
+    nowMs: now,
+    config: match.config,
+  });
+
+  if (!schedule.allowed) {
+    return {
+      stored: false,
+      reason: schedule.reason,
+      nextAllowedAtMs: schedule.nextAllowedAtMs,
+    };
+  }
+
+  await repos.locations.insert(ctx, {
+    matchId: match.id,
+    playerId: player.id,
     lat: input.lat,
     lng: input.lng,
     accuracyMetres: input.accuracyMetres,
-    reportedAtClientMs: input.reportedAtClientMs,
+    pingIndex: (last?.pingIndex ?? -1) + 1,
+    recordedAt: now,
   });
+
+  return { stored: true, reason: null, nextAllowedAtMs: schedule.nextAllowedAtMs };
 }

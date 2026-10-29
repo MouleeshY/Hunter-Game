@@ -63,6 +63,7 @@
     "react-hook-form": "^7.67.0",
     "react-intersection-observer": "^10.0.0",
     "react-resizable-panels": "^3.0.6",
+    "shadow-hunt-rules": "file:./src/rules",
     "react-router": "^7.10.0",
     "recharts": "^2.15.4",
     "sonner": "^2.0.7",

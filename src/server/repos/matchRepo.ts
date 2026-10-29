@@ -1,16 +1,19 @@
 import type {
-  MatchStatus,
   MatchConfig,
+  MatchStatus,
   LatLng,
   MatchSnapshot,
 } from "../../rules/types";
+import type { RepoContext } from "./context";
 
-export type { MatchStatus, MatchConfig, LatLng } from "../../rules/types";
+export type { MatchStatus, MatchConfig, LatLng };
 
-/** One match. Kept deliberately fat here so the rules engine only needs this
- *   interface, not the underlying DB shape. */
+/** One match. Kept deliberately fat so the rules engine only needs this shape,
+ *   not the underlying database document. */
 export interface MatchRow {
   id: string;
+  /** Five-character join code. */
+  roomCode: string;
   status: MatchStatus;
   config: MatchConfig;
   createdAt: number;
@@ -20,28 +23,31 @@ export interface MatchRow {
   rosterLocked: boolean;
   createdByUserId: string | null;
   zoneCentre: LatLng;
+  /** Where the organiser stood at setup; used for re-rolls, never published. */
+  organiserPosition: LatLng | null;
   initialRadiusMetres: number;
   winner: "hunters" | "shadows" | null;
   endedAt: number | null;
 }
 
 export interface MatchRepository {
-  /** Return the match with this id, or null. */
-  findById(id: string): Promise<MatchRow | null>;
-
-  /** Persist a new match row as created by the organiser. */
-  create(input: {
-    status: MatchStatus;
-    config: MatchConfig;
-    createdByUserId: string | null;
-    zoneCentre: LatLng;
-    initialRadiusMetres: number;
-    eventWindowMinutesMax: number;
-    matchDurationMinutes: number;
-  }): Promise<MatchRow>;
-
-  /** Update a small, named set of fields — used for state transitions. */
+  findById(ctx: RepoContext, id: string): Promise<MatchRow | null>;
+  findByRoomCode(ctx: RepoContext, roomCode: string): Promise<MatchRow | null>;
+  create(
+    ctx: RepoContext,
+    input: {
+      roomCode: string;
+      status: MatchStatus;
+      config: MatchConfig;
+      createdByUserId: string | null;
+      zoneCentre: LatLng;
+      organiserPosition: LatLng;
+      initialRadiusMetres: number;
+      eventWindowMinutesMax: number;
+    },
+  ): Promise<MatchRow>;
   patch(
+    ctx: RepoContext,
     id: string,
     patch: {
       status?: MatchStatus;
@@ -50,12 +56,13 @@ export interface MatchRepository {
       winner?: "hunters" | "shadows" | null;
       endedAt?: number | null;
       rosterLocked?: boolean;
+      zoneCentre?: LatLng;
+      initialRadiusMetres?: number;
     },
   ): Promise<void>;
 }
 
-/** As the rules engine sees it. Derived from MatchRow so the engine never
- *   imports the repo interface. */
+/** As the rules engine sees it. */
 export function snapshotOf(row: MatchRow): MatchSnapshot {
   return {
     status: row.status,

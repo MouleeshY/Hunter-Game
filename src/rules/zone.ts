@@ -59,6 +59,7 @@ export function radiusForPlayerCount(
  *
  * The result never grows as the match progresses: the step count only
  * rises, the player count only falls, and both push the radius down.
+ * It never shrinks below `minZoneRadiusMetres`, so the zone cannot collapse.
  */
 export function zoneRadiusAtMinute(args: {
   minute: number;
@@ -84,7 +85,7 @@ export function zoneRadiusAtMinute(args: {
     radius *= config.zoneShrinkFactor;
     extra += 1;
   }
-  return radius;
+  return Math.max(config.minZoneRadiusMetres, radius);
 }
 
 /**

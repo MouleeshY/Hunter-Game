@@ -25,16 +25,21 @@ const shadow = (over: Partial<PlayerSnapshot> = {}): PlayerSnapshot => ({
   ...over,
 });
 
-const atMetres = (metres: number): LocationSnapshot => ({
+const atMetres = (
+  metres: number,
+  recordedAtMs: number = NOW,
+): LocationSnapshot => ({
   lat: 51.5 + metres / METRES_PER_DEGREE,
   lng: -0.12,
-  recordedAtMs: NOW,
+  recordedAtMs,
+  accuracyMetres: 5,
+  pingIndex: 0,
 });
 
 const base = {
   nowMs: NOW,
   match: {
-    status: "active" as const,
+    status: "live" as const,
     startedAtMs: NOW - 600_000,
     endsAtMs: NOW + 3_600_000,
   },
@@ -211,7 +216,7 @@ describe("tag scan — match state", () => {
   it("rejects before the match is running", () => {
     const verdict = validateTagScan({
       ...base,
-      match: { ...base.match, status: "setup" },
+      match: { ...base.match, status: "headstart" },
     });
     expect(verdict.ok).toBe(false);
     if (!verdict.ok) expect(verdict.code).toBe("match_not_active");
@@ -245,7 +250,52 @@ describe("tag scan — match state", () => {
   });
 
   it("accepts a scan on the final second of the match", () => {
-    const verdict = validateTagScan({ ...base, nowMs: base.match.endsAtMs! });
+    const at = base.match.endsAtMs!;
+    const verdict = validateTagScan({
+      ...base,
+      nowMs: at,
+      scannerLocation: atMetres(0, at - 1_000),
+      targetLocation: atMetres(0, at - 1_000),
+    });
+    expect(verdict.ok).toBe(true);
+  });
+});
+
+describe("tag scan — freshness", () => {
+  const freshnessMs = config.tagFreshnessSeconds * 1000;
+
+  it("accepts a position exactly on the freshness limit", () => {
+    const verdict = validateTagScan({
+      ...base,
+      targetLocation: atMetres(5, NOW - freshnessMs),
+    });
+    expect(verdict.ok).toBe(true);
+  });
+
+  it("rejects a stale target position", () => {
+    const verdict = validateTagScan({
+      ...base,
+      targetLocation: atMetres(5, NOW - freshnessMs - 1),
+    });
+    expect(verdict.ok).toBe(false);
+    if (!verdict.ok) expect(verdict.code).toBe("stale_location");
+  });
+
+  it("rejects a stale hunter position", () => {
+    const verdict = validateTagScan({
+      ...base,
+      scannerLocation: atMetres(0, NOW - freshnessMs - 1),
+    });
+    expect(verdict.ok).toBe(false);
+    if (!verdict.ok) expect(verdict.code).toBe("stale_location");
+  });
+
+  it("uses the configured freshness window", () => {
+    const verdict = validateTagScan({
+      ...base,
+      targetLocation: atMetres(5, NOW - 40_000),
+      config: { ...config, tagFreshnessSeconds: 45 },
+    });
     expect(verdict.ok).toBe(true);
   });
 });

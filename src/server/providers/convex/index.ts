@@ -1,727 +1,160 @@
 /**
  * Convex implementation of the swappable data-access layer.
  *
- * This module is the only place (apart from `src/convex/matches.ts` itself) that
- * imports from the generated Convex API. The repository interfaces above are
- * database-agnostic; this file maps them to Convex reads/writes.
- *
- * Selected by DATA_PROVIDER=convex. When DATA_PROVIDER is absent for local
- * development, Convex is the default because this project currently only runs
- * on Convex.
+ * This is the only module that reads or writes Convex documents for game data.
+ * The repository interfaces in `src/server/repos` stay database-agnostic; this
+ * file casts the opaque `RepoContext` to a Convex context exactly once, in
+ * `ctxOf`, and then works with the generated `Doc`/`Id` types.
  */
-
-import type { Id } from "../../../convex/_generated/dataModel";
+import type { Doc, Id } from "../../../convex/_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "../../../convex/_generated/server";
+import type { RepoContext } from "../../repos/context";
 import type {
-  MatchRow,
-  MatchRepository,
-  MatchConfig,
-  MatchStatus,
-  ZoneSnapshot,
   LatLng,
+  MatchConfig,
+  MatchRepository,
+  MatchRow,
+  MatchStatus,
 } from "../../repos/matchRepo";
-import type { PlayerRow, PlayerRepository } from "../../repos/playerRepo";
+import type { PlayerRepository, PlayerRow } from "../../repos/playerRepo";
+import type { LocationRepository, LocationRow } from "../../repos/locationRepo";
+import type { TagRepository } from "../../repos/tagRepo";
 import type {
-  LocationRow,
-  Location,
-  LocationRepository,
-} from "../../repos/locationRepo";
-import type { TagRow, TagRepository } from "../../repos/tagRepo";
-import type {
-  ComplaintRow,
   ComplaintRepository,
+  ComplaintRow,
 } from "../../repos/complaintRepo";
 import type {
-  InvigilatorRow,
   InvigilatorRepository,
+  InvigilatorRow,
 } from "../../repos/invigilatorRepo";
 import type { ScoreEventRow, ScoreRepository } from "../../repos/scoreRepo";
 import type {
-  LeaderboardRow,
   LeaderboardRepository,
+  LeaderboardRow,
 } from "../../repos/leaderboardRepo";
 
-// ---- tiny Convex → plain id helpers -----------------------------------------
+// ---- opaque context --------------------------------------------------------
 
-function s(id: Id<any> | null | undefined): string | null {
-  return id == null ? null : String(id);
+type ConvexCtx = QueryCtx | MutationCtx;
+
+function ctxOf(context: RepoContext): ConvexCtx {
+  // The Convex mutations and queries pass their own ctx here; the provider is
+  // selected by DATA_PROVIDER, so only Convex hands us a Convex context.
+  return context as ConvexCtx;
 }
 
-function sNonEmpty(id: Id<any>): string {
-  return String(id);
+function reader(context: RepoContext): QueryCtx["db"] {
+  return ctxOf(context).db;
 }
 
-function n(date: Date): number {
-  return date.getTime();
+function writer(context: RepoContext): MutationCtx["db"] {
+  return (context as MutationCtx).db;
 }
 
-// ---- MatchRepository --------------------------------------------------------
+// ---- matchers --------------------------------------------------------------
 
-export const matchRepo: MatchRepository = {
-  findById: async (id) => {
-    const m = await readMatch(id);
-    return m ? convexMatchToRow(m) : null;
-  },
-  create: async (input) => {
-    const createdAt = n(new Date());
-    const startedAt = null;
-    const endsAt = null;
-    const rosterLocked = false;
-    const winner = null;
-    const endedAt = null;
-    const eventWindowEndsAt = createdAt + input.eventWindowMinutesMax * 60_000;
-
-    const doc = await writeMatch({
-      status: input.status,
-      config: input.config,
-      createdAt,
-      startedAt,
-      endsAt,
-      eventWindowEndsAt,
-      rosterLocked,
-      createdBy:
-        input.createdByUserId == null
-          ? undefined
-          : (input.createdByUserId as Id<"users">),
-      zone: {
-        centreLat: input.zoneCentre.lat,
-        centreLng: input.zoneCentre.lng,
-        initialRadiusMetres: input.initialRadiusMetres,
-      },
-      winner,
-      endedAt,
-    });
-    return convexMatchToRow(doc);
-  },
-  patch: async (id, patch) => {
-    const current = await readMatch(id);
-    if (!current) throw new Error(`match ${id} not found`);
-    const next: any = { ...current };
-    if (patch.status != null) next.status = patch.status;
-    if (patch.startedAt != null) next.startedAt = patch.startedAt;
-    if (patch.endsAt != null) next.endsAt = patch.endsAt;
-    if (patch.winner != null) next.winner = patch.winner;
-    if (patch.endedAt != null) next.endedAt = patch.endedAt;
-    if (patch.rosterLocked != null) next.rosterLocked = patch.rosterLocked;
-    // Convex needs an existing id; writeMatch updates a stored doc by id.
-    await writeMatch(next as any);
-  },
-};
-
-function convexMatchToRow(m: any): MatchRow {
+function matchRow(m: Doc<"matches">): MatchRow {
   return {
-    id: sNonEmpty(m._id),
+    id: m._id,
+    roomCode: m.roomCode,
     status: m.status,
     config: m.config,
     createdAt: m.createdAt,
-    startedAt: m.startedAt,
-    endsAt: m.endsAt,
-    eventWindowEndsAt: m.eventWindowEndsAt,
+    startedAt: m.startedAt ?? null,
+    endsAt: m.endsAt ?? null,
+    eventWindowEndsAt: m.eventWindowEndsAt ?? null,
     rosterLocked: m.rosterLocked,
-    createdByUserId: s(m.createdBy),
+    createdByUserId: m.createdBy ?? null,
     zoneCentre: { lat: m.zone.centreLat, lng: m.zone.centreLng },
+    organiserPosition: m.organiserPosition ?? null,
     initialRadiusMetres: m.zone.initialRadiusMetres,
-    winner: m.winner,
-    endedAt: m.endedAt,
+    winner: m.winner ?? null,
+    endedAt: m.endedAt ?? null,
   };
 }
 
-let _readMatch: (id: Id<"matches">) => Promise<any | null>;
-let _writeMatch: (doc: any) => Promise<any>;
-
-// Lazy-bound at call time so this module can be imported without a running
-// Convex context; the bound functions come from the Convex provider export.
-export function bindConvexMatchFns(
-  read: (id: Id<"matches">) => Promise<any | null>,
-  write: (doc: any) => Promise<any>,
-) {
-  _readMatch = read;
-  _writeMatch = write;
-}
-
-async function readMatch(id: string): Promise<any | null> {
-  return _readMatch(id as Id<"matches">);
-}
-
-async function writeMatch(doc: any): Promise<any> {
-  return _writeMatch(doc);
-}
-
-// ---- PlayerRepository -------------------------------------------------------
-
-export const playerRepo: PlayerRepository = {
-  findByMatchAndUser: async (matchId, userId) => {
-    const row = await readPlayerByMatchAndUser(matchId, userId);
-    return row ? convexPlayerToRow(row) : null;
-  },
-  findByMatchAndToken: async (matchId, token) => {
-    const row = await readPlayerByMatchAndToken(matchId, token);
-    return row ? convexPlayerToRow(row) : null;
-  },
-  listByMatch: async (matchId) => {
-    const rows = await readPlayersByMatch(matchId);
-    return rows.map(convexPlayerToRow);
-  },
-  listActiveByMatch: async (matchId) => {
-    const rows = await readPlayersByMatch(matchId);
-    const inPlay = rows.filter(
-      (r) =>
-        r.role === "hunter" ||
-        (r.role === "shadow" && (r.taggedAt != null || r.mode === "hunter")),
-    );
-    return inPlay.map(convexPlayerToRow);
-  },
-  create: async (input) => {
-    const doc = await writePlayer({
-      matchId: input.matchId as Id<"matches">,
-      userId: input.userId as Id<"users">,
-      role: input.role,
-      mode: input.mode,
-      status: input.status,
-      displayName: input.displayName,
-      displayNameMode: input.displayNameMode,
-      qrToken: input.qrToken,
-      points: 0,
-      joinedAt: input.joinedAt,
-      taggedAt: undefined,
-      taggedById: undefined,
-      zoneBreach: {
-        outsideSince: undefined,
-        chargedDrainTicks: 0,
-        warnedAt: undefined,
-      },
-    });
-    return convexPlayerToRow(doc);
-  },
-  patch: async (id, patch) => {
-    const current = await readPlayer(id);
-    if (!current) throw new Error(`player ${id} not found`);
-    const next: any = { ...current };
-    if (patch.role != null) next.role = patch.role;
-    if (patch.mode != null) next.mode = patch.mode;
-    if (patch.status != null) next.status = patch.status;
-    if (patch.displayName != null) next.displayName = patch.displayName;
-    if (patch.displayNameMode != null)
-      next.displayNameMode = patch.displayNameMode;
-    if (patch.qrToken != null) next.qrToken = patch.qrToken;
-    if (patch.points != null) next.points = patch.points;
-    if (patch.joinedAt != null) next.joinedAt = patch.joinedAt;
-    if (patch.taggedAt != null)
-      next.taggedAt = patch.taggedAt == null ? undefined : patch.taggedAt;
-    if (patch.taggedById != null)
-      next.taggedById =
-        patch.taggedById == null
-          ? undefined
-          : (patch.taggedById as Id<"players">);
-    if (patch.outsideSince != null)
-      next.zoneBreach.outsideSince =
-        patch.outsideSince == null ? undefined : patch.outsideSince;
-    if (patch.outsideSecondsTotal != null)
-      next.zoneBreach.outsideSecondsTotal = patch.outsideSecondsTotal;
-    if (patch.chargedDrainTicks != null)
-      next.zoneBreach.chargedDrainTicks = patch.chargedDrainTicks;
-    if (patch.warnedAt != null)
-      next.zoneBreach.warnedAt =
-        patch.warnedAt == null ? undefined : patch.warnedAt;
-    await writePlayer(next as any);
-  },
-  patchOutZoneState: async (id, state) => {
-    const current = await readPlayer(id);
-    if (!current) throw new Error(`player ${id} not found`);
-    const next: any = { ...current };
-    next.zoneBreach = { ...current.zoneBreach };
-    if (state.outsideSince != null)
-      next.zoneBreach.outsideSince =
-        state.outsideSince == null ? undefined : state.outsideSince;
-    if (state.outsideSecondsTotal != null)
-      next.zoneBreach.outsideSecondsTotal = state.outsideSecondsTotal;
-    if (state.chargedDrainTicks != null)
-      next.zoneBreach.chargedDrainTicks = state.chargedDrainTicks;
-    if (state.warnedAt != null)
-      next.zoneBreach.warnedAt =
-        state.warnedAt == null ? undefined : state.warnedAt;
-    if (state.status != null) next.status = state.status;
-    await writePlayer(next as any);
-  },
-};
-
-function convexPlayerToRow(p: any): PlayerRow {
+function playerRow(p: Doc<"players">): PlayerRow {
   return {
-    id: sNonEmpty(p._id),
-    matchId: sNonEmpty(p.matchId) as any,
-    userId: sNonEmpty(p.userId) as any,
+    id: p._id,
+    matchId: p.matchId,
+    userId: p.userId,
     role: p.role,
     mode: p.mode,
     status: p.status,
+    callSign: p.callSign,
     displayName: p.displayName,
     displayNameMode: p.displayNameMode,
     qrToken: p.qrToken,
     points: p.points,
     joinedAt: p.joinedAt,
-    taggedAt: p.taggedAt,
-    taggedById: s(p.taggedById) as any,
-    outsideSince: p.zoneBreach == null ? null : p.zoneBreach.outsideSince,
-    outsideSecondsTotal:
-      p.zoneBreach == null ? 0 : p.zoneBreach.outsideSecondsTotal,
-    chargedDrainTicks:
-      p.zoneBreach == null ? 0 : p.zoneBreach.chargedDrainTicks,
-    warnedAt: p.zoneBreach == null ? null : p.zoneBreach.warnedAt,
+    taggedAt: p.taggedAt ?? null,
+    taggedById: p.taggedById ?? null,
+    outsideSince: p.zoneBreach.outsideSince ?? null,
+    outsideSecondsTotal: 0,
+    chargedDrainTicks: p.zoneBreach.chargedDrainTicks,
+    warnedAt: p.zoneBreach.warnedAt ?? null,
   };
 }
 
-let _readPlayer: (id: Id<"players">) => Promise<any | null>;
-let _readPlayerByMatchAndUser: (
-  matchId: Id<"matches">,
-  userId: Id<"users">,
-) => Promise<any | null>;
-let _readPlayerByMatchAndToken: (
-  matchId: Id<"matches">,
-  token: string,
-) => Promise<any | null>;
-let _readPlayersByMatch: (matchId: Id<"matches">) => Promise<any[]>;
-let _writePlayer: (doc: any) => Promise<any>;
-
-export function bindConvexPlayerFns(
-  read: (id: Id<"players">) => Promise<any | null>,
-  readByMatchAndUser: (
-    matchId: Id<"matches">,
-    userId: Id<"users">,
-  ) => Promise<any | null>,
-  readByMatchAndToken: (
-    matchId: Id<"matches">,
-    token: string,
-  ) => Promise<any | null>,
-  listByMatch: (matchId: Id<"matches">) => Promise<any[]>,
-  write: (doc: any) => Promise<any>,
-) {
-  _readPlayer = read;
-  _readPlayerByMatchAndUser = readByMatchAndUser;
-  _readPlayerByMatchAndToken = readByMatchAndToken;
-  _readPlayersByMatch = listByMatch;
-  _writePlayer = write;
-}
-
-async function readPlayer(id: string): Promise<any | null> {
-  return _readPlayer(id as Id<"players">);
-}
-
-async function readPlayerByMatchAndUser(
-  matchId: string,
-  userId: string,
-): Promise<any | null> {
-  return _readPlayerByMatchAndUser(
-    matchId as Id<"matches">,
-    userId as Id<"users">,
-  );
-}
-
-async function readPlayerByMatchAndToken(
-  matchId: string,
-  token: string,
-): Promise<any | null> {
-  return _readPlayerByMatchAndToken(matchId as Id<"matches">, token);
-}
-
-async function readPlayersByMatch(matchId: string): Promise<any[]> {
-  return _readPlayersByMatch(matchId as Id<"matches">);
-}
-
-async function writePlayer(doc: any): Promise<any> {
-  return _writePlayer(doc);
-}
-
-// ---- LocationRepository -----------------------------------------------------
-
-export const locationRepo: LocationRepository = {
-  latestByPlayer: async (matchId, playerId) => {
-    const row = await readLatestLocation(matchId, playerId);
-    return row ? convexLocationToRow(row) : null;
-  },
-  latestSnapshotByPlayers: async (matchId, playerIds) => {
-    const map = new Map<string, Location>();
-    for (const pid of playerIds) {
-      const row = await readLatestLocation(matchId, pid);
-      if (row)
-        map.set(pid, {
-          lat: row.lat,
-          lng: row.lng,
-          recordedAtMs: row.recordedAt,
-        });
-    }
-    return map;
-  },
-  insert: async (input) => {
-    const row = await writeLocation({
-      matchId: input.matchId as Id<"matches">,
-      playerId: input.playerId as Id<"players">,
-      lat: input.lat,
-      lng: input.lng,
-      accuracyMetres: input.accuracyMetres,
-      recordedAt: n(new Date()),
-      pingIndex: 0,
-    });
-    return convexLocationToRow(row);
-  },
-  insertPing: async (input) => {
-    const row = await writeLocation({
-      matchId: input.matchId as Id<"matches">,
-      playerId: input.playerId as Id<"players">,
-      lat: input.lat,
-      lng: input.lng,
-      accuracyMetres: null,
-      recordedAt: input.recordedAt,
-      pingIndex: input.pingIndex,
-    });
-    return convexLocationToRow(row);
-  },
-};
-
-function convexLocationToRow(l: any): LocationRow {
+function locationRow(l: Doc<"locations">): LocationRow {
   return {
-    id: sNonEmpty(l._id),
-    matchId: sNonEmpty(l.matchId) as any,
-    playerId: sNonEmpty(l.playerId) as any,
+    id: l._id,
+    matchId: l.matchId,
+    playerId: l.playerId,
     lat: l.lat,
     lng: l.lng,
-    accuracyMetres: l.accuracyMetres,
-    recordedAt: l.recordedAt,
+    accuracyMetres: l.accuracyMetres ?? null,
+    recordedAtMs: l.recordedAt,
     pingIndex: l.pingIndex,
   };
 }
 
-let _readLatestLocation: (
-  matchId: Id<"matches">,
-  playerId: Id<"players">,
-) => Promise<any | null>;
-let _writeLocation: (doc: any) => Promise<any>;
-
-export function bindConvexLocationFns(
-  read: (
-    matchId: Id<"matches">,
-    playerId: Id<"players">,
-  ) => Promise<any | null>,
-  write: (doc: any) => Promise<any>,
-) {
-  _readLatestLocation = read;
-  _writeLocation = write;
-}
-
-async function readLatestLocation(
-  matchId: string,
-  playerId: string,
-): Promise<any | null> {
-  return _readLatestLocation(
-    matchId as Id<"matches">,
-    playerId as Id<"players">,
-  );
-}
-
-async function writeLocation(doc: any): Promise<any> {
-  return _writeLocation(doc);
-}
-
-// ---- TagRepository ----------------------------------------------------------
-
-export const tagRepo: TagRepository = {
-  insert: async (input) => {
-    const doc = await writeTag({
-      matchId: input.matchId as Id<"matches">,
-      hunterId: input.hunterId as Id<"players">,
-      shadowId: input.shadowId as Id<"players">,
-      status: input.status,
-      rejectionCode: input.rejectionCode,
-      distanceMetres: input.distanceMetres,
-      assistedById:
-        input.assistedById == null
-          ? undefined
-          : (input.assistedById as Id<"players">),
-      scoredPoints: input.scoredPoints,
-      at: input.at,
-    });
-    return sNonEmpty(doc._id);
-  },
-};
-
-let _writeTag: (doc: any) => Promise<any>;
-
-export function bindConvexTagFns(write: (doc: any) => Promise<any>) {
-  _writeTag = write;
-}
-
-async function writeTag(doc: any): Promise<any> {
-  return _writeTag(doc);
-}
-
-// ---- ComplaintRepository ----------------------------------------------------
-
-export const complaintRepo: ComplaintRepository = {
-  create: async (input) => {
-    const at = n(new Date());
-    const doc = await writeComplaint({
-      matchId: input.matchId as Id<"matches">,
-      complainantId: input.complainantId as Id<"players">,
-      accusedId: input.accusedId as Id<"players">,
-      note: input.note,
-      createdAt: at,
-      responseDueAt: at + input.configComplaintResponseMinutes * 60_000,
-      status: "open",
-      resolvedByUserId: undefined,
-      resolvedAt: undefined,
-      resolutionNote: undefined,
-    });
-    return convexComplaintToRow(doc);
-  },
-  listOpenByMatch: async (matchId) => {
-    const rows = await readOpenComplaintsByMatch(matchId);
-    return rows.map(convexComplaintToRow);
-  },
-  patch: async (id, patch) => {
-    const current = await readComplaint(id);
-    if (!current) throw new Error(`complaint ${id} not found`);
-    const next: any = { ...current };
-    if (patch.status != null) next.status = patch.status;
-    if (patch.resolvedByUserId != null)
-      next.resolvedByUserId =
-        patch.resolvedByUserId == null
-          ? undefined
-          : (patch.resolvedByUserId as Id<"users">);
-    if (patch.resolvedAt != null)
-      next.resolvedAt = patch.resolvedAt == null ? undefined : patch.resolvedAt;
-    if (patch.resolutionNote != null)
-      next.resolutionNote = patch.resolutionNote;
-    await writeComplaint(next as any);
-  },
-};
-
-function convexComplaintToRow(c: any): ComplaintRow {
+function complaintRow(c: Doc<"complaints">): ComplaintRow {
   return {
-    id: sNonEmpty(c._id),
-    matchId: sNonEmpty(c.matchId) as any,
-    complainantId: sNonEmpty(c.complainantId) as any,
-    accusedId: sNonEmpty(c.accusedId) as any,
-    note: c.note,
+    id: c._id,
+    matchId: c.matchId,
+    complainantId: c.complainantId,
+    accusedId: c.accusedId,
+    note: c.note ?? null,
     createdAt: c.createdAt,
     responseDueAt: c.responseDueAt,
     status: c.status,
-    resolvedByUserId: s(c.resolvedByUserId) as any,
-    resolvedAt: c.resolvedAt,
-    resolutionNote: c.resolutionNote,
+    resolvedByUserId: c.resolvedBy ?? null,
+    resolvedAt: c.resolvedAt ?? null,
+    resolutionNote: c.resolutionNote ?? null,
   };
 }
 
-let _readOpenComplaintsByMatch: (matchId: Id<"matches">) => Promise<any[]>;
-let _readComplaint: (id: any) => Promise<any | null>;
-let _writeComplaint: (doc: any) => Promise<any>;
-
-export function bindConvexComplaintFns(
-  listOpen: (matchId: Id<"matches">) => Promise<any[]>,
-  read: (id: any) => Promise<any | null>,
-  write: (doc: any) => Promise<any>,
-) {
-  _readOpenComplaintsByMatch = listOpen;
-  _readComplaint = read;
-  _writeComplaint = write;
-}
-
-async function readOpenComplaintsByMatch(matchId: string): Promise<any[]> {
-  return _readOpenComplaintsByMatch(matchId as Id<"matches">);
-}
-
-async function readComplaint(id: string): Promise<any | null> {
-  return _readComplaint(id);
-}
-
-async function writeComplaint(doc: any): Promise<any> {
-  return _writeComplaint(doc);
-}
-
-// ---- InvigilatorRepository --------------------------------------------------
-
-export const invigilatorRepo: InvigilatorRepository = {
-  findByMatchAndUser: async (matchId, userId) => {
-    const row = await readInvigilatorByMatchAndUser(matchId, userId);
-    return row ? convexInvigilatorToRow(row) : null;
-  },
-  listByMatch: async (matchId) => {
-    const rows = await readInvigilatorsByMatch(matchId);
-    return rows.map(convexInvigilatorToRow);
-  },
-  create: async (input) => {
-    const doc = await writeInvigilator({
-      matchId: input.matchId as Id<"matches">,
-      userId: input.userId,
-      displayName: input.displayName,
-      active: true,
-      addedAt: n(new Date()),
-    });
-    return convexInvigilatorToRow(doc);
-  },
-  patchActive: async (id, active) => {
-    const row = await readInvigilator(id);
-    if (!row) throw new Error(`invigilator ${id} not found`);
-    await writeInvigilator({ ...row, active });
-  },
-};
-
-function convexInvigilatorToRow(r: any): InvigilatorRow {
+function invigilatorRow(i: Doc<"invigilators">): InvigilatorRow {
   return {
-    id: sNonEmpty(r._id),
-    matchId: sNonEmpty(r.matchId) as any,
-    userId: r.userId as any,
-    displayName: r.displayName,
-    active: r.active,
-    addedAt: r.addedAt,
+    id: i._id,
+    matchId: i.matchId,
+    userId: i.userId ?? null,
+    displayName: i.displayName,
+    inviteCode: i.inviteCode,
+    active: i.active,
+    addedAt: i.addedAt,
   };
 }
 
-let _readInvigilatorByMatchAndUser: (
-  matchId: Id<"matches">,
-  userId: Id<"users">,
-) => Promise<any | null>;
-let _readInvigilatorsByMatch: (matchId: Id<"matches">) => Promise<any[]>;
-let _readInvigilator: (id: any) => Promise<any | null>;
-let _writeInvigilator: (doc: any) => Promise<any>;
-
-export function bindConvexInvigilatorFns(
-  findByMatchAndUser: (
-    matchId: Id<"matches">,
-    userId: Id<"users">,
-  ) => Promise<any | null>,
-  listByMatch: (matchId: Id<"matches">) => Promise<any[]>,
-  readById: (id: any) => Promise<any | null>,
-  write: (doc: any) => Promise<any>,
-) {
-  _readInvigilatorByMatchAndUser = findByMatchAndUser;
-  _readInvigilatorsByMatch = listByMatch;
-  _readInvigilator = readById;
-  _writeInvigilator = write;
-}
-
-async function readInvigilatorByMatchAndUser(
-  matchId: string,
-  userId: string,
-): Promise<any | null> {
-  return _readInvigilatorByMatchAndUser(
-    matchId as Id<"matches">,
-    userId as Id<"users">,
-  );
-}
-
-async function readInvigilatorsByMatch(matchId: string): Promise<any[]> {
-  return _readInvigilatorsByMatch(matchId as Id<"matches">);
-}
-
-async function readInvigilator(id: string): Promise<any | null> {
-  return _readInvigilator(id);
-}
-
-async function writeInvigilator(doc: any): Promise<any> {
-  return _writeInvigilator(doc);
-}
-
-// ---- ScoreRepository --------------------------------------------------------
-
-export const scoreRepo: ScoreRepository = {
-  insert: async (input) => {
-    await writeScoreEvent({
-      matchId: input.matchId as Id<"matches">,
-      playerId: input.playerId as Id<"players">,
-      kind: input.kind,
-      points: input.points,
-      at: input.at,
-      source: input.source,
-      refId: input.refId,
-    });
-  },
-  listByPlayer: async (matchId, playerId) => {
-    const rows = await readScoreEventsByMatchAndPlayer(matchId, playerId);
-    return rows.map(convexScoreEventToRow);
-  },
-};
-
-function convexScoreEventToRow(e: any): ScoreEventRow {
+function scoreRow(e: Doc<"scoreEvents">): ScoreEventRow {
   return {
-    id: sNonEmpty(e._id),
-    matchId: sNonEmpty(e.matchId) as any,
-    playerId: sNonEmpty(e.playerId) as any,
+    id: e._id,
+    matchId: e.matchId,
+    playerId: e.playerId,
     kind: e.kind,
     points: e.points,
     at: e.at,
     source: e.source,
-    refId: e.refId,
+    refId: e.refId ?? null,
   };
 }
 
-let _writeScoreEvent: (doc: any) => Promise<any>;
-let _readScoreEventsByMatchAndPlayer: (
-  matchId: Id<"matches">,
-  playerId: Id<"players">,
-) => Promise<any[]>;
-
-export function bindConvexScoreFns(
-  write: (doc: any) => Promise<any>,
-  listByPlayer: (
-    matchId: Id<"matches">,
-    playerId: Id<"players">,
-  ) => Promise<any[]>,
-) {
-  _writeScoreEvent = write;
-  _readScoreEventsByMatchAndPlayer = listByPlayer;
-}
-
-async function writeScoreEvent(doc: any): Promise<any> {
-  return _writeScoreEvent(doc);
-}
-
-async function readScoreEventsByMatchAndPlayer(
-  matchId: string,
-  playerId: string,
-): Promise<any[]> {
-  return _readScoreEventsByMatchAndPlayer(
-    matchId as Id<"matches">,
-    playerId as Id<"players">,
-  );
-}
-
-// ---- LeaderboardRepository --------------------------------------------------
-
-export const leaderboardRepo: LeaderboardRepository = {
-  upsert: async (input) => {
-    const existing = await readLeaderboardByMatchAndPlayer(
-      input.matchId,
-      input.playerId,
-    );
-    if (existing) {
-      await writeLeaderboard({
-        ...existing,
-        displayName: input.displayName,
-        displayNameMode: input.displayNameMode,
-        totalPoints: input.totalPoints,
-        breakdown: input.breakdown,
-        updatedAt: input.at,
-      });
-    } else {
-      await writeLeaderboard({
-        matchId: input.matchId,
-        playerId: input.playerId,
-        displayName: input.displayName,
-        displayNameMode: input.displayNameMode,
-        totalPoints: input.totalPoints,
-        breakdown: input.breakdown,
-        updatedAt: input.at,
-      });
-    }
-  },
-  listByMatch: async (matchId) => {
-    const rows = await readLeaderboardByMatch(matchId);
-    return rows.map(convexLeaderboardToRow);
-  },
-};
-
-function convexLeaderboardToRow(r: any): LeaderboardRow {
+function leaderboardRow(r: Doc<"leaderboard">): LeaderboardRow {
   return {
-    id: sNonEmpty(r._id),
-    matchId: sNonEmpty(r.matchId) as any,
-    playerId: sNonEmpty(r.playerId) as any,
+    id: r._id,
+    matchId: r.matchId,
+    playerId: r.playerId,
     displayName: r.displayName,
     displayNameMode: r.displayNameMode,
     totalPoints: r.totalPoints,
@@ -730,48 +163,436 @@ function convexLeaderboardToRow(r: any): LeaderboardRow {
   };
 }
 
-let _readLeaderboardByMatchAndPlayer: (
-  matchId: Id<"matches">,
-  playerId: string,
-) => Promise<any | null>;
-let _readLeaderboardByMatch: (matchId: Id<"matches">) => Promise<any[]>;
-let _writeLeaderboard: (doc: any) => Promise<any>;
+// ---- MatchRepository -------------------------------------------------------
 
-export function bindConvexLeaderboardFns(
-  byMatchAndPlayer: (
-    matchId: Id<"matches">,
-    playerId: string,
-  ) => Promise<any | null>,
-  byMatch: (matchId: Id<"matches">) => Promise<any[]>,
-  write: (doc: any) => Promise<any>,
-) {
-  _readLeaderboardByMatchAndPlayer = byMatchAndPlayer;
-  _readLeaderboardByMatch = byMatch;
-  _writeLeaderboard = write;
-}
+export const matchRepo: MatchRepository = {
+  findById: async (ctx, id) => {
+    const doc = await reader(ctx).get(id as Id<"matches">);
+    return doc ? matchRow(doc) : null;
+  },
 
-async function readLeaderboardByMatchAndPlayer(
-  matchId: string,
-  playerId: string,
-): Promise<any | null> {
-  return _readLeaderboardByMatchAndPlayer(
-    matchId as Id<"matches">,
-    playerId,
-  );
-}
+  findByRoomCode: async (ctx, roomCode) => {
+    const doc = await reader(ctx)
+      .query("matches")
+      .withIndex("by_room_code", (q) => q.eq("roomCode", roomCode))
+      .first();
+    return doc ? matchRow(doc) : null;
+  },
 
-async function readLeaderboardByMatch(matchId: string): Promise<any[]> {
-  return _readLeaderboardByMatch(matchId as Id<"matches">);
-}
+  create: async (ctx, input) => {
+    const db = writer(ctx);
+    const createdAt = Date.now();
+    const id = await db.insert("matches", {
+      roomCode: input.roomCode,
+      status: input.status,
+      config: input.config,
+      createdAt,
+      eventWindowEndsAt: createdAt + input.eventWindowMinutesMax * 60_000,
+      rosterLocked: false,
+      createdBy:
+        input.createdByUserId === null
+          ? undefined
+          : (input.createdByUserId as Id<"users">),
+      zone: {
+        centreLat: input.zoneCentre.lat,
+        centreLng: input.zoneCentre.lng,
+        initialRadiusMetres: input.initialRadiusMetres,
+      },
+      organiserPosition: {
+        lat: input.organiserPosition.lat,
+        lng: input.organiserPosition.lng,
+      },
+    });
+    const doc = await db.get(id);
+    if (!doc) throw new Error("Match insert did not persist.");
+    return matchRow(doc);
+  },
 
-async function writeLeaderboard(doc: any): Promise<any> {
-  return _writeLeaderboard(doc);
-}
+  patch: async (ctx, id, patch) => {
+    const db = writer(ctx);
+    const doc = await db.get(id as Id<"matches">);
+    if (!doc) throw new Error(`Match ${id} not found.`);
 
-// ---- public API surface ----------------------------------------------------
+    const next: {
+      status?: MatchStatus;
+      startedAt?: number;
+      endsAt?: number;
+      winner?: "hunters" | "shadows";
+      endedAt?: number;
+      rosterLocked?: boolean;
+      zone?: { centreLat: number; centreLng: number; initialRadiusMetres: number };
+    } = {};
 
-/** The set of repositories used by the server. In the Convex provider these are
- *   bound once at boot time from the generated Convex API. */
+    if (patch.status !== undefined) next.status = patch.status;
+    if (patch.startedAt !== undefined && patch.startedAt !== null) {
+      next.startedAt = patch.startedAt;
+    }
+    if (patch.endsAt !== undefined && patch.endsAt !== null) {
+      next.endsAt = patch.endsAt;
+    }
+    if (patch.winner !== undefined && patch.winner !== null) {
+      next.winner = patch.winner;
+    }
+    if (patch.endedAt !== undefined && patch.endedAt !== null) {
+      next.endedAt = patch.endedAt;
+    }
+    if (patch.rosterLocked !== undefined) {
+      next.rosterLocked = patch.rosterLocked;
+    }
+    if (patch.zoneCentre !== undefined || patch.initialRadiusMetres !== undefined) {
+      next.zone = {
+        centreLat: patch.zoneCentre?.lat ?? doc.zone.centreLat,
+        centreLng: patch.zoneCentre?.lng ?? doc.zone.centreLng,
+        initialRadiusMetres:
+          patch.initialRadiusMetres ?? doc.zone.initialRadiusMetres,
+      };
+    }
+
+    await db.patch(id as Id<"matches">, next);
+  },
+};
+
+// ---- PlayerRepository ------------------------------------------------------
+
+export const playerRepo: PlayerRepository = {
+  findById: async (ctx, id) => {
+    const doc = await reader(ctx).get(id as Id<"players">);
+    return doc ? playerRow(doc) : null;
+  },
+
+  findByMatchAndUser: async (ctx, matchId, userId) => {
+    const doc = await reader(ctx)
+      .query("players")
+      .withIndex("by_match_user", (q) =>
+        q.eq("matchId", matchId as Id<"matches">).eq("userId", userId as Id<"users">),
+      )
+      .first();
+    return doc ? playerRow(doc) : null;
+  },
+
+  findByMatchAndToken: async (ctx, matchId, qrToken) => {
+    const doc = await reader(ctx)
+      .query("players")
+      .withIndex("by_match_qr", (q) =>
+        q.eq("matchId", matchId as Id<"matches">).eq("qrToken", qrToken),
+      )
+      .first();
+    return doc ? playerRow(doc) : null;
+  },
+
+  listByMatch: async (ctx, matchId) => {
+    const docs = await reader(ctx)
+      .query("players")
+      .withIndex("by_match_user", (q) => q.eq("matchId", matchId as Id<"matches">))
+      .collect();
+    return docs.map(playerRow);
+  },
+
+  create: async (ctx, input) => {
+    const db = writer(ctx);
+    const id = await db.insert("players", {
+      matchId: input.matchId as Id<"matches">,
+      userId: input.userId as Id<"users">,
+      role: input.role,
+      mode: input.mode,
+      status: input.status,
+      callSign: input.callSign,
+      displayName: input.displayName,
+      displayNameMode: input.displayNameMode,
+      qrToken: input.qrToken,
+      points: 0,
+      joinedAt: input.joinedAt,
+      zoneBreach: { chargedDrainTicks: 0 },
+    });
+    const doc = await db.get(id);
+    if (!doc) throw new Error("Player insert did not persist.");
+    return playerRow(doc);
+  },
+
+  patch: async (ctx, id, patch) => {
+    const db = writer(ctx);
+    const doc = await db.get(id as Id<"players">);
+    if (!doc) throw new Error(`Player ${id} not found.`);
+
+    const next: {
+      role?: PlayerRow["role"];
+      mode?: PlayerRow["mode"];
+      status?: PlayerRow["status"];
+      points?: number;
+      taggedAt?: number;
+      taggedById?: Id<"players">;
+    } = {};
+
+    if (patch.role !== undefined) next.role = patch.role;
+    if (patch.mode !== undefined) next.mode = patch.mode;
+    if (patch.status !== undefined) next.status = patch.status;
+    if (patch.points !== undefined) next.points = patch.points;
+    if (patch.taggedAt !== undefined && patch.taggedAt !== null) {
+      next.taggedAt = patch.taggedAt;
+    }
+    if (patch.taggedById !== undefined && patch.taggedById !== null) {
+      next.taggedById = patch.taggedById as Id<"players">;
+    }
+
+    await db.patch(id as Id<"players">, next);
+  },
+};
+
+// ---- LocationRepository ----------------------------------------------------
+
+export const locationRepo: LocationRepository = {
+  latestByPlayer: async (ctx, matchId, playerId) => {
+    const doc = await reader(ctx)
+      .query("locations")
+      .withIndex("by_match_player_time", (q) =>
+        q
+          .eq("matchId", matchId as Id<"matches">)
+          .eq("playerId", playerId as Id<"players">),
+      )
+      .order("desc")
+      .first();
+    return doc ? locationRow(doc) : null;
+  },
+
+  latestSnapshotByPlayers: async (ctx, matchId, playerIds) => {
+    const map = new Map<
+      string,
+      { lat: number; lng: number; recordedAtMs: number; accuracyMetres: number | null; pingIndex: number }
+    >();
+    for (const playerId of playerIds) {
+      const doc = await reader(ctx)
+        .query("locations")
+        .withIndex("by_match_player_time", (q) =>
+          q
+            .eq("matchId", matchId as Id<"matches">)
+            .eq("playerId", playerId as Id<"players">),
+        )
+        .order("desc")
+        .first();
+      if (doc) map.set(playerId, locationRow(doc));
+    }
+    return map;
+  },
+
+  insert: async (ctx, input) => {
+    const db = writer(ctx);
+    const id = await db.insert("locations", {
+      matchId: input.matchId as Id<"matches">,
+      playerId: input.playerId as Id<"players">,
+      lat: input.lat,
+      lng: input.lng,
+      accuracyMetres: input.accuracyMetres ?? undefined,
+      recordedAt: input.recordedAt,
+      pingIndex: input.pingIndex,
+    });
+    const doc = await db.get(id);
+    if (!doc) throw new Error("Location insert did not persist.");
+    return locationRow(doc);
+  },
+};
+
+// ---- TagRepository ---------------------------------------------------------
+
+export const tagRepo: TagRepository = {
+  insert: async (ctx, input) => {
+    const id = await writer(ctx).insert("tags", {
+      matchId: input.matchId as Id<"matches">,
+      hunterId: input.hunterId as Id<"players">,
+      shadowId: input.shadowId as Id<"players">,
+      status: input.status,
+      rejectionCode: input.rejectionCode ?? undefined,
+      distanceMetres: input.distanceMetres ?? undefined,
+      assistedById:
+        input.assistedById === null || input.assistedById === undefined
+          ? undefined
+          : (input.assistedById as Id<"players">),
+      scoredPoints: input.scoredPoints,
+      at: input.at,
+    });
+    return id;
+  },
+};
+
+// ---- ComplaintRepository ---------------------------------------------------
+
+export const complaintRepo: ComplaintRepository = {
+  create: async (ctx, input) => {
+    const db = writer(ctx);
+    const at = Date.now();
+    const id = await db.insert("complaints", {
+      matchId: input.matchId as Id<"matches">,
+      complainantId: input.complainantId as Id<"players">,
+      accusedId: input.accusedId as Id<"players">,
+      note: input.note ?? undefined,
+      createdAt: at,
+      responseDueAt: at + input.configComplaintResponseMinutes * 60_000,
+      status: "open",
+    });
+    const doc = await db.get(id);
+    if (!doc) throw new Error("Complaint insert did not persist.");
+    return complaintRow(doc);
+  },
+
+  listOpenByMatch: async (ctx, matchId) => {
+    const docs = await reader(ctx)
+      .query("complaints")
+      .withIndex("by_match_status", (q) =>
+        q.eq("matchId", matchId as Id<"matches">).eq("status", "open"),
+      )
+      .collect();
+    return docs.map(complaintRow);
+  },
+
+  patch: async (ctx, id, patch) => {
+    const db = writer(ctx);
+    const doc = await db.get(id as Id<"complaints">);
+    if (!doc) throw new Error(`Complaint ${id} not found.`);
+
+    const next: {
+      status?: ComplaintRow["status"];
+      resolvedBy?: Id<"users">;
+      resolvedAt?: number;
+      resolutionNote?: string;
+    } = {};
+    if (patch.status !== undefined) next.status = patch.status;
+    if (patch.resolvedByUserId !== undefined) {
+      next.resolvedBy = patch.resolvedByUserId as Id<"users">;
+    }
+    if (patch.resolvedAt !== undefined) next.resolvedAt = patch.resolvedAt;
+    if (patch.resolutionNote !== undefined) {
+      next.resolutionNote = patch.resolutionNote;
+    }
+    await db.patch(id as Id<"complaints">, next);
+  },
+};
+
+// ---- InvigilatorRepository -------------------------------------------------
+
+export const invigilatorRepo: InvigilatorRepository = {
+  findById: async (ctx, id) => {
+    const doc = await reader(ctx).get(id as Id<"invigilators">);
+    return doc ? invigilatorRow(doc) : null;
+  },
+
+  findByInviteCode: async (ctx, inviteCode) => {
+    const doc = await reader(ctx)
+      .query("invigilators")
+      .withIndex("by_invite_code", (q) => q.eq("inviteCode", inviteCode))
+      .first();
+    return doc ? invigilatorRow(doc) : null;
+  },
+
+  findByMatchAndUser: async (ctx, matchId, userId) => {
+    const doc = await reader(ctx)
+      .query("invigilators")
+      .withIndex("by_match_user", (q) =>
+        q.eq("matchId", matchId as Id<"matches">).eq("userId", userId as Id<"users">),
+      )
+      .first();
+    return doc ? invigilatorRow(doc) : null;
+  },
+
+  listByMatch: async (ctx, matchId) => {
+    const docs = await reader(ctx)
+      .query("invigilators")
+      .withIndex("by_match", (q) => q.eq("matchId", matchId as Id<"matches">))
+      .collect();
+    return docs.map(invigilatorRow);
+  },
+
+  create: async (ctx, input) => {
+    const db = writer(ctx);
+    const id = await db.insert("invigilators", {
+      matchId: input.matchId as Id<"matches">,
+      displayName: input.displayName,
+      inviteCode: input.inviteCode,
+      active: true,
+      addedAt: input.addedAt,
+    });
+    const doc = await db.get(id);
+    if (!doc) throw new Error("Invigilator insert did not persist.");
+    return invigilatorRow(doc);
+  },
+
+  claim: async (ctx, id, userId) => {
+    await writer(ctx).patch(id as Id<"invigilators">, {
+      userId: userId as Id<"users">,
+    });
+  },
+
+  patchActive: async (ctx, id, active) => {
+    await writer(ctx).patch(id as Id<"invigilators">, { active });
+  },
+};
+
+// ---- ScoreRepository -------------------------------------------------------
+
+export const scoreRepo: ScoreRepository = {
+  insert: async (ctx, input) => {
+    await writer(ctx).insert("scoreEvents", {
+      matchId: input.matchId as Id<"matches">,
+      playerId: input.playerId as Id<"players">,
+      kind: input.kind,
+      points: input.points,
+      at: input.at,
+      source: input.source,
+      refId: input.refId ?? undefined,
+    });
+  },
+
+  listByPlayer: async (ctx, matchId, playerId) => {
+    const docs = await reader(ctx)
+      .query("scoreEvents")
+      .withIndex("by_match_player", (q) =>
+        q
+          .eq("matchId", matchId as Id<"matches">)
+          .eq("playerId", playerId as Id<"players">),
+      )
+      .collect();
+    return docs.map(scoreRow);
+  },
+};
+
+// ---- LeaderboardRepository -------------------------------------------------
+
+export const leaderboardRepo: LeaderboardRepository = {
+  upsert: async (ctx, input) => {
+    const db = writer(ctx);
+    const existing = await db
+      .query("leaderboard")
+      .withIndex("by_match_player", (q) =>
+        q
+          .eq("matchId", input.matchId as Id<"matches">)
+          .eq("playerId", input.playerId as Id<"players">),
+      )
+      .first();
+
+    const row = {
+      matchId: input.matchId as Id<"matches">,
+      playerId: input.playerId as Id<"players">,
+      displayName: input.displayName,
+      displayNameMode: input.displayNameMode,
+      totalPoints: input.totalPoints,
+      breakdown: input.breakdown,
+      updatedAt: input.at,
+    };
+
+    if (existing) await db.patch(existing._id, row);
+    else await db.insert("leaderboard", row);
+  },
+
+  listByMatch: async (ctx, matchId) => {
+    const docs = await reader(ctx)
+      .query("leaderboard")
+      .withIndex("by_match_points", (q) =>
+        q.eq("matchId", matchId as Id<"matches">),
+      )
+      .collect();
+    return docs.map(leaderboardRow);
+  },
+};
+
+/** Every repository the server uses, implemented on Convex. */
 export const repos = {
   matches: matchRepo,
   players: playerRepo,
@@ -782,3 +603,7 @@ export const repos = {
   scores: scoreRepo,
   leaderboard: leaderboardRepo,
 } as const;
+
+export type Repos = typeof repos;
+
+export type { LatLng, MatchConfig };

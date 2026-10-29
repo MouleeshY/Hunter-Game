@@ -1,106 +1,69 @@
+/**
+ * Match rules on the server: position uploads, tag scans, settling and the
+ * public leaderboard.
+ *
+ * Every database read and write goes through a repository from
+ * `src/server/repos`. Every decision (proximity, freshness, scoring, end
+ * conditions) comes from the pure functions in `shadow-hunt-rules`
+ * (`src/rules`). This module only resolves auth, calls those and writes.
+ */
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
-import type { Doc, Id } from "./_generated/dataModel";
-import {
-  type MutationCtx,
-  mutation,
-  query,
-  type QueryCtx,
-} from "./_generated/server";
+import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import {
   allTaggedBonus,
   hunterTagPoints,
+  matchEndState,
   rankLeaderboard,
   survivalBonus,
-} from "./rules/scoring";
-import { matchEndState, pingSchedule } from "./rules/match";
-import { validateTagScan } from "./rules/tags";
-import { zoneProgress, zoneRadiusAtMinute } from "./rules/zone";
-import type { LocationSnapshot, PlayerSnapshot } from "./rules/types";
+  validateTagScan,
+  zoneProgress,
+  zoneRadiusAtMinute,
+  type LocationSnapshot,
+  type PlayerSnapshot,
+} from "shadow-hunt-rules";
+import { getRepos } from "../server/providers";
+import type { PlayerRow } from "../server/repos";
+import { uploadPosition as uploadPositionService } from "../server/index";
 
-/**
- * Server-side rules for a running match.
- *
- * Everything that decides whether a tag counts, whether a player is inside the
- * zone, and how many points are worth happens in `./rules/*` — pure functions
- * with unit tests. This module only reads state, calls those functions, and
- * writes the result. No rule is enforced on the phone.
- */
+type Ctx = MutationCtx | QueryCtx;
 
-/* ------------------------------------------------------------------ *
- * Helpers
- * ------------------------------------------------------------------ */
+const repos = () => getRepos();
 
-async function getPlayerByUser(
-  ctx: MutationCtx | QueryCtx,
-  matchId: Id<"matches">,
-  userId: Id<"users">,
-) {
-  return await ctx.db
-    .query("players")
-    .withIndex("by_match_user", (q) =>
-      q.eq("matchId", matchId).eq("userId", userId),
-    )
-    .first();
-}
-
-async function getPlayerByToken(
-  ctx: MutationCtx | QueryCtx,
-  matchId: Id<"matches">,
-  qrToken: string,
-) {
-  return await ctx.db
-    .query("players")
-    .withIndex("by_match_qr", (q) =>
-      q.eq("matchId", matchId).eq("qrToken", qrToken),
-    )
-    .first();
-}
-
-async function getPlayers(ctx: MutationCtx | QueryCtx, matchId: Id<"matches">) {
-  return await ctx.db
-    .query("players")
-    .withIndex("by_match_role", (q) => q.eq("matchId", matchId))
-    .collect();
-}
-
-async function getLatestLocation(
-  ctx: MutationCtx | QueryCtx,
-  matchId: Id<"matches">,
-  playerId: Id<"players">,
-) {
-  return await ctx.db
-    .query("locations")
-    .withIndex("by_match_player_time", (q) =>
-      q.eq("matchId", matchId).eq("playerId", playerId),
-    )
-    .order("desc")
-    .first();
-}
-
-function snapshot(player: Doc<"players">): PlayerSnapshot {
+function playerSnapshot(player: PlayerRow): PlayerSnapshot {
   return {
-    id: player._id,
+    id: player.id,
     role: player.role,
     mode: player.mode,
     status: player.status,
-    taggedAtMs: player.taggedAt ?? null,
+    taggedAtMs: player.taggedAt,
   };
 }
 
-function locationOf(row: Doc<"locations"> | null): LocationSnapshot | null {
-  if (!row) return null;
-  return { lat: row.lat, lng: row.lng, recordedAtMs: row.recordedAt };
-}
-
-/** Players still taking part: untagged players and converted Hunters. */
-function playersInPlay(players: Doc<"players">[]) {
-  return players.filter((p) => p.status === "active" || p.status === "tagged");
+function locationSnapshot(row: {
+  lat: number;
+  lng: number;
+  recordedAtMs: number;
+  accuracyMetres: number | null;
+  pingIndex: number;
+}): LocationSnapshot {
+  return {
+    lat: row.lat,
+    lng: row.lng,
+    recordedAtMs: row.recordedAtMs,
+    accuracyMetres: row.accuracyMetres,
+    pingIndex: row.pingIndex,
+  };
 }
 
 /** Zone contraction (0 → 1) at a given moment of the match. */
 function zoneProgressNow(
-  match: Doc<"matches">,
+  match: {
+    startedAt: number | null;
+    initialRadiusMetres: number;
+    config: Parameters<typeof zoneRadiusAtMinute>[0]["config"];
+  },
   inPlayCount: number,
   nowMs: number,
 ): number {
@@ -109,10 +72,10 @@ function zoneProgressNow(
   const radius = zoneRadiusAtMinute({
     minute,
     activePlayerCount: inPlayCount,
-    initialRadiusMetres: match.zone.initialRadiusMetres,
+    initialRadiusMetres: match.initialRadiusMetres,
     config: match.config,
   });
-  return zoneProgress(radius, match.zone.initialRadiusMetres);
+  return zoneProgress(radius, match.initialRadiusMetres);
 }
 
 /**
@@ -120,17 +83,15 @@ function zoneProgressNow(
  * leaderboard row. Totals are always derived, never nudged.
  */
 async function settlePlayer(
-  ctx: MutationCtx,
-  matchId: Id<"matches">,
-  playerId: Id<"players">,
+  ctx: Ctx,
+  matchId: string,
+  playerId: string,
   at: number,
 ): Promise<number> {
-  const events = await ctx.db
-    .query("scoreEvents")
-    .withIndex("by_match_player", (q) =>
-      q.eq("matchId", matchId).eq("playerId", playerId),
-    )
-    .collect();
+  const [events, player] = await Promise.all([
+    repos().scores.listByPlayer(ctx, matchId, playerId),
+    repos().players.findById(ctx, playerId),
+  ]);
 
   const breakdown = { alive: 0, tags: 0, bonuses: 0, drains: 0 };
   for (const event of events) {
@@ -142,73 +103,74 @@ async function settlePlayer(
   const totalPoints =
     breakdown.alive + breakdown.tags + breakdown.bonuses + breakdown.drains;
 
-  const player = await ctx.db.get(playerId);
   if (!player) return totalPoints;
 
-  const existing = await ctx.db
-    .query("leaderboard")
-    .withIndex("by_match_player", (q) =>
-      q.eq("matchId", matchId).eq("playerId", playerId),
-    )
-    .first();
-
-  const row = {
+  await repos().leaderboard.upsert(ctx, {
     matchId,
     playerId,
     displayName: player.displayName,
     displayNameMode: player.displayNameMode,
     totalPoints,
     breakdown,
-    updatedAt: at,
-  };
-  if (existing) await ctx.db.patch(existing._id, row);
-  else await ctx.db.insert("leaderboard", row);
-
-  await ctx.db.patch(playerId, { points: totalPoints });
+    at,
+  });
+  await repos().players.patch(ctx, playerId, { points: totalPoints });
   return totalPoints;
 }
 
 async function award(
   ctx: MutationCtx,
   args: {
-    matchId: Id<"matches">;
-    playerId: Id<"players">;
+    matchId: string;
+    playerId: string;
     kind: "tag" | "all_tagged_bonus" | "survival_bonus";
     points: number;
     at: number;
     refId?: string;
   },
-) {
-  await ctx.db.insert("scoreEvents", {
+): Promise<void> {
+  await repos().scores.insert(ctx, {
     matchId: args.matchId,
     playerId: args.playerId,
     kind: args.kind,
     points: args.points,
     at: args.at,
     source: "system",
-    refId: args.refId,
+    refId: args.refId ?? null,
   });
   await settlePlayer(ctx, args.matchId, args.playerId, args.at);
 }
 
 /**
- * "All Shadows tagged: 150 bonus per Hunter."
- * Awarded to Hunters still in play who were never tagged themselves — a
- * captured Shadow who switched sides stopped scoring when they were caught.
+ * "150 bonus per Hunter" applies to every original Hunter who was not removed
+ * by an invigilator. A Shadow who turned Hunter after being tagged is not an
+ * original Hunter and receives nothing.
  */
-function isEligibleHunter(player: Doc<"players">): boolean {
+function isEligibleHunter(player: PlayerRow): boolean {
   return (
     player.role === "hunter" &&
     player.status === "active" &&
-    player.taggedAt === undefined
+    player.taggedAt === null
   );
 }
 
-/* ------------------------------------------------------------------ *
- * Location ping
- * ------------------------------------------------------------------ */
+function activeShadows(players: PlayerRow[]): PlayerRow[] {
+  return players.filter(
+    (player) =>
+      player.role === "shadow" &&
+      player.status === "active" &&
+      player.taggedAt === null,
+  );
+}
 
-export const recordPing = mutation({
+/* ------------------------------------------------------------------ *\n * Position upload\n * ------------------------------------------------------------------ */
+
+/**
+ * Phones upload their position every few seconds (`uploadIntervalSeconds`).
+ * The 3-minute ping only controls what Hunters are shown of Shadows; it does
+ * not limit uploads.
+ */
+export const uploadPosition = mutation({
   args: {
     matchId: v.id("matches"),
     lat: v.number(),
@@ -216,69 +178,28 @@ export const recordPing = mutation({
     accuracyMetres: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const now = Date.now();
     const userId = await getAuthUserId(ctx);
     if (userId === null) throw new Error("Not signed in");
 
-    const match = await ctx.db.get(args.matchId);
-    if (!match) throw new Error("Match not found");
-    if (match.status !== "active") throw new Error("Match is not running");
-
-    const player = await getPlayerByUser(ctx, args.matchId, userId);
-    if (!player) throw new Error("You are not in this match");
-
-    if (!Number.isFinite(args.lat) || args.lat < -90 || args.lat > 90) {
-      throw new Error("Latitude out of range");
-    }
-    if (!Number.isFinite(args.lng) || args.lng < -180 || args.lng > 180) {
-      throw new Error("Longitude out of range");
-    }
-
-    const last = await getLatestLocation(ctx, args.matchId, player._id);
-    const schedule = pingSchedule({
-      startedAtMs: match.startedAt ?? null,
-      lastPingAtMs: last?.recordedAt ?? null,
-      nowMs: now,
-      config: match.config,
-    });
-
-    if (!schedule.allowed) {
-      return {
-        ok: false as const,
-        reason: schedule.reason,
-        nextAllowedAtMs: schedule.nextAllowedAtMs,
-        pingIndex: last?.pingIndex ?? 0,
-      };
-    }
-
-    const pingIndex = last ? last.pingIndex + 1 : 0;
-    await ctx.db.insert("locations", {
+    return await uploadPositionService(ctx, {
       matchId: args.matchId,
-      playerId: player._id,
+      userId,
       lat: args.lat,
       lng: args.lng,
-      accuracyMetres: args.accuracyMetres,
-      recordedAt: now,
-      pingIndex,
+      accuracyMetres: args.accuracyMetres ?? null,
     });
-
-    return {
-      ok: true as const,
-      reason: null,
-      nextAllowedAtMs: now + match.config.pingIntervalMinutes * 60_000,
-      pingIndex,
-    };
   },
 });
 
-/* ------------------------------------------------------------------ *
- * Tag scan
- * ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ *\n * Tag scan\n * ------------------------------------------------------------------ */
 
 export const submitTagScan = mutation({
   args: {
     matchId: v.id("matches"),
     scannedToken: v.string(),
+    /** The Hunter's current GPS reading, sent with the scan. */
+    scannerLat: v.number(),
+    scannerLng: v.number(),
     /** Converted Hunter who helped with this capture. Noted at capture time. */
     assistedByPlayerId: v.optional(v.id("players")),
   },
@@ -287,45 +208,65 @@ export const submitTagScan = mutation({
     const userId = await getAuthUserId(ctx);
     if (userId === null) throw new Error("Not signed in");
 
-    const match = await ctx.db.get(args.matchId);
+    const match = await repos().matches.findById(ctx, args.matchId);
     if (!match) throw new Error("Match not found");
 
-    const scanner = await getPlayerByUser(ctx, args.matchId, userId);
+    const scanner = await repos().players.findByMatchAndUser(
+      ctx,
+      match.id,
+      userId,
+    );
     if (!scanner) throw new Error("You are not in this match");
 
-    const target = await getPlayerByToken(ctx, args.matchId, args.scannedToken);
+    // The scan carries a fresh reading; store it so the 30 s freshness rule can
+    // be applied to both sides.
+    if (!Number.isFinite(args.scannerLat) || !Number.isFinite(args.scannerLng)) {
+      throw new Error("A current GPS reading is needed to scan.");
+    }
+    const stored = await repos().locations.insert(ctx, {
+      matchId: match.id,
+      playerId: scanner.id,
+      lat: args.scannerLat,
+      lng: args.scannerLng,
+      accuracyMetres: null,
+      pingIndex: 0,
+      recordedAt: now,
+    });
 
-    const [scannerLocation, targetLocation] = await Promise.all([
-      getLatestLocation(ctx, args.matchId, scanner._id),
-      target ? getLatestLocation(ctx, args.matchId, target._id) : null,
-    ]);
+    const target = await repos().players.findByMatchAndToken(
+      ctx,
+      match.id,
+      args.scannedToken,
+    );
+    const targetLocation = target
+      ? await repos().locations.latestByPlayer(ctx, match.id, target.id)
+      : null;
 
     const verdict = validateTagScan({
       nowMs: now,
       match: {
         status: match.status,
-        startedAtMs: match.startedAt ?? null,
-        endsAtMs: match.endsAt ?? null,
+        startedAtMs: match.startedAt,
+        endsAtMs: match.endsAt,
       },
-      scanner: snapshot(scanner),
-      target: target ? snapshot(target) : null,
-      scannerLocation: locationOf(scannerLocation),
-      targetLocation: locationOf(targetLocation),
+      scanner: playerSnapshot(scanner),
+      target: target ? playerSnapshot(target) : null,
+      scannerLocation: locationSnapshot(stored),
+      targetLocation: targetLocation ? locationSnapshot(targetLocation) : null,
       config: match.config,
     });
 
     if (!verdict.ok) {
-      // A failed or wrong scan costs the Hunter nothing: no points move, no
-      // state changes. The row exists only so an invigilator can audit a
-      // dispute about someone else's code.
+      // A failed or wrong scan costs the Hunter nothing: no points move and no
+      // state changes. The row exists only for an invigilator to audit.
       if (target) {
-        await ctx.db.insert("tags", {
-          matchId: args.matchId,
-          hunterId: scanner._id,
-          shadowId: target._id,
+        await repos().tags.insert(ctx, {
+          matchId: match.id,
+          hunterId: scanner.id,
+          shadowId: target.id,
           status: "rejected",
           rejectionCode: verdict.code,
-          distanceMetres: verdict.distanceMetres,
+          distanceMetres: verdict.distanceMetres ?? null,
           scoredPoints: 0,
           at: now,
         });
@@ -336,33 +277,39 @@ export const submitTagScan = mutation({
         distanceMetres: verdict.distanceMetres ?? null,
         points: 0,
         matchEnded: false,
+        winner: null,
       };
     }
 
-    const players = await getPlayers(ctx, args.matchId);
-    const progress = zoneProgressNow(match, playersInPlay(players).length, now);
+    const players = await repos().players.listByMatch(ctx, match.id);
+    const inPlay = players.filter(
+      (player) => player.status === "active" || player.status === "tagged",
+    );
+    const progress = zoneProgressNow(match, inPlay.length, now);
     const points = verdict.scores
       ? hunterTagPoints({ zoneProgress01: progress, config: match.config })
       : 0;
 
-    /* Who helped: only a converted Hunter can assist a Hunter. */
-    let assistedById: Id<"players"> | undefined;
+    /* Who helped: only a converted Hunter can assist. */
+    let assistedById: string | null = null;
     if (args.assistedByPlayerId) {
-      const helper = players.find((p) => p._id === args.assistedByPlayerId);
+      const helper = players.find(
+        (player) => player.id === args.assistedByPlayerId,
+      );
       if (
         helper &&
-        helper._id !== scanner._id &&
-        helper.taggedAt !== undefined &&
+        helper.id !== scanner.id &&
+        helper.taggedAt !== null &&
         helper.mode === "hunter"
       ) {
-        assistedById = helper._id;
+        assistedById = helper.id;
       }
     }
 
-    const tagId = await ctx.db.insert("tags", {
-      matchId: args.matchId,
-      hunterId: scanner._id,
-      shadowId: target!._id,
+    const tagId = await repos().tags.insert(ctx, {
+      matchId: match.id,
+      hunterId: scanner.id,
+      shadowId: target!.id,
       status: "accepted",
       distanceMetres: verdict.distanceMetres,
       assistedById,
@@ -371,16 +318,16 @@ export const submitTagScan = mutation({
     });
 
     /* The Shadow stops scoring and takes the mode chosen before the match. */
-    await ctx.db.patch(target!._id, {
+    await repos().players.patch(ctx, target!.id, {
       status: target!.mode === "hunter" ? "tagged" : "spectator",
       taggedAt: now,
-      taggedById: scanner._id,
+      taggedById: scanner.id,
     });
 
     if (points > 0) {
       await award(ctx, {
-        matchId: args.matchId,
-        playerId: scanner._id,
+        matchId: match.id,
+        playerId: scanner.id,
         kind: "tag",
         points,
         at: now,
@@ -388,28 +335,28 @@ export const submitTagScan = mutation({
       });
     }
 
-    /* End conditions. */
-    const totalShadows = players.filter((p) => p.role === "shadow").length;
-    const taggedShadows = players.filter(
-      (p) =>
-        p.role === "shadow" &&
-        (p._id === target!._id || p.taggedAt !== undefined),
-    ).length;
+    /* End conditions: Hunters win when no Shadow remains active. */
+    const remaining = players.map((player) =>
+      player.id === target!.id
+        ? { ...player, status: "tagged" as const, taggedAt: now }
+        : player,
+    );
+    const totalShadows = remaining.filter((p) => p.role === "shadow").length;
     const end = matchEndState({
       totalShadows,
-      taggedShadows,
+      activeShadows: activeShadows(remaining).length,
       nowMs: now,
-      endsAtMs: match.endsAt ?? null,
+      endsAtMs: match.endsAt,
     });
 
     let matchEnded = false;
     if (end.ended && end.winner === "hunters") {
       const bonus = allTaggedBonus(match.config);
-      for (const p of players) {
-        if (isEligibleHunter(p)) {
+      for (const player of players) {
+        if (isEligibleHunter(player)) {
           await award(ctx, {
-            matchId: args.matchId,
-            playerId: p._id,
+            matchId: match.id,
+            playerId: player.id,
             kind: "all_tagged_bonus",
             points: bonus,
             at: now,
@@ -417,7 +364,7 @@ export const submitTagScan = mutation({
           });
         }
       }
-      await ctx.db.patch(match._id, {
+      await repos().matches.patch(ctx, match.id, {
         status: "ended",
         winner: "hunters",
         endedAt: now,
@@ -436,45 +383,39 @@ export const submitTagScan = mutation({
   },
 });
 
-/* ------------------------------------------------------------------ *
- * Settle the match once an end condition is true
- * ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ *\n * Settle on the timer\n * ------------------------------------------------------------------ */
 
 export const settleMatch = mutation({
   args: { matchId: v.id("matches") },
   handler: async (ctx, args) => {
     const now = Date.now();
-    const match = await ctx.db.get(args.matchId);
+    const match = await repos().matches.findById(ctx, args.matchId);
     if (!match) throw new Error("Match not found");
     if (match.status === "ended") {
       return {
         ended: true,
-        winner: match.winner ?? null,
+        winner: match.winner,
         alreadySettled: true,
       };
     }
 
-    const players = await getPlayers(ctx, args.matchId);
+    const players = await repos().players.listByMatch(ctx, match.id);
     const totalShadows = players.filter((p) => p.role === "shadow").length;
-    const taggedShadows = players.filter(
-      (p) => p.role === "shadow" && p.taggedAt !== undefined,
-    ).length;
-
     const end = matchEndState({
       totalShadows,
-      taggedShadows,
+      activeShadows: activeShadows(players).length,
       nowMs: now,
-      endsAtMs: match.endsAt ?? null,
+      endsAtMs: match.endsAt,
     });
     if (!end.ended) throw new Error("The match has not ended yet");
 
     if (end.winner === "hunters") {
       const bonus = allTaggedBonus(match.config);
-      for (const p of players) {
-        if (isEligibleHunter(p)) {
+      for (const player of players) {
+        if (isEligibleHunter(player)) {
           await award(ctx, {
-            matchId: args.matchId,
-            playerId: p._id,
+            matchId: match.id,
+            playerId: player.id,
             kind: "all_tagged_bonus",
             points: bonus,
             at: now,
@@ -482,25 +423,21 @@ export const settleMatch = mutation({
         }
       }
     } else {
+      // Removed, tagged and eliminated Shadows get nothing: only an active,
+      // untagged Shadow receives the survival bonus.
       const bonus = survivalBonus(match.config);
-      for (const p of players) {
-        if (
-          p.role === "shadow" &&
-          p.status === "active" &&
-          p.taggedAt === undefined
-        ) {
-          await award(ctx, {
-            matchId: args.matchId,
-            playerId: p._id,
-            kind: "survival_bonus",
-            points: bonus,
-            at: now,
-          });
-        }
+      for (const player of activeShadows(players)) {
+        await award(ctx, {
+          matchId: match.id,
+          playerId: player.id,
+          kind: "survival_bonus",
+          points: bonus,
+          at: now,
+        });
       }
     }
 
-    await ctx.db.patch(match._id, {
+    await repos().matches.patch(ctx, match.id, {
       status: "ended",
       winner: end.winner,
       endedAt: now,
@@ -510,35 +447,30 @@ export const settleMatch = mutation({
   },
 });
 
-/* ------------------------------------------------------------------ *
- * Public leaderboard — names and points only, never positions
- * ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ *\n * Public leaderboard\n * ------------------------------------------------------------------ */
 
 export const getLeaderboard = query({
   args: { matchId: v.id("matches") },
   handler: async (ctx, args) => {
-    const match = await ctx.db.get(args.matchId);
+    const match = await repos().matches.findById(ctx, args.matchId);
     if (!match) throw new Error("Match not found");
 
-    const rows = await ctx.db
-      .query("leaderboard")
-      .withIndex("by_match_points", (q) => q.eq("matchId", args.matchId))
-      .collect();
+    const rows = await repos().leaderboard.listByMatch(ctx, match.id);
+    const byId = new Map(rows.map((row) => [row.playerId, row]));
 
-    const byId = new Map(rows.map((r) => [r.playerId, r]));
     const ranked = rankLeaderboard(
-      rows.map((r) => ({
-        playerId: r.playerId as string,
-        displayName: r.displayName,
-        totalPoints: r.totalPoints,
+      rows.map((row) => ({
+        playerId: row.playerId,
+        displayName: row.displayName,
+        totalPoints: row.totalPoints,
       })),
     );
 
     return {
       status: match.status,
-      winner: match.winner ?? null,
+      winner: match.winner,
       entries: ranked.map((entry) => {
-        const row = byId.get(entry.playerId as Id<"players">);
+        const row = byId.get(entry.playerId);
         return {
           rank: entry.rank,
           displayName: entry.displayName,
@@ -554,3 +486,5 @@ export const getLeaderboard = query({
     };
   },
 });
+
+export type MatchId = Id<"matches">;

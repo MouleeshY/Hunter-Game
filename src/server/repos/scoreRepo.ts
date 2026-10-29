@@ -1,3 +1,5 @@
+import type { RepoContext } from "./context";
+
 export type ScoreKind =
   | "shadow_alive"
   | "tag"
@@ -19,15 +21,21 @@ export interface ScoreEventRow {
 }
 
 export interface ScoreRepository {
-  insert(input: {
-    matchId: string;
-    playerId: string;
-    kind: ScoreKind;
-    points: number;
-    at: number;
-    source: ScoreSource;
-    refId: string | null;
-  }): Promise<void>;
-  /** Return every score event for a player in a match, newest first. */
-  listByPlayer(matchId: string, playerId: string): Promise<ScoreEventRow[]>;
+  insert(
+    ctx: RepoContext,
+    input: {
+      matchId: string;
+      playerId: string;
+      kind: ScoreKind;
+      points: number;
+      at: number;
+      source: ScoreSource;
+      refId: string | null;
+    },
+  ): Promise<void>;
+  listByPlayer(
+    ctx: RepoContext,
+    matchId: string,
+    playerId: string,
+  ): Promise<ScoreEventRow[]>;
 }

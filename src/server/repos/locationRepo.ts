@@ -1,47 +1,39 @@
-import type { Location } from "../../rules/types";
+import type { LocationSnapshot } from "../../rules/types";
+import type { RepoContext } from "./context";
 
-export type { Location } from "../../rules/types";
+export type { LocationSnapshot };
 
 /** A stored position record. `recordedAt` is a server millisecond timestamp. */
-export interface LocationRow {
+export interface LocationRow extends LocationSnapshot {
   id: string;
   matchId: string;
   playerId: string;
-  lat: number;
-  lng: number;
-  accuracyMetres: number | null;
-  recordedAt: number;
-  pingIndex: number;
 }
 
 export interface LocationRepository {
   /** Latest stored position for a player in a match, or null. */
   latestByPlayer(
+    ctx: RepoContext,
     matchId: string,
     playerId: string,
   ): Promise<LocationRow | null>;
-  /** Latest stored position for a set of players in a match. Only columns needed
-   *   by the rules engine are returned. */
+  /** Latest position for several players, keyed by player id. */
   latestSnapshotByPlayers(
+    ctx: RepoContext,
     matchId: string,
     playerIds: string[],
-  ): Promise<Map<string, Location>>;
-  /** Store a fresh position uploaded by the player's phone. */
-  insert(input: {
-    matchId: string;
-    playerId: string;
-    lat: number;
-    lng: number;
-    accuracyMetres: number | null;
-    reportedAtClientMs: number;
-  }): Promise<LocationRow>;
-  /** Store a ping-side position the server records from the upload path. */
-  insertPing(input: {
-    matchId: string;
-    playerId: string;
-    lat: number;
-    lng: number;
-    pingIndex: number;
-    recordedAt: number;
-  }): Promise<LocationRow>;
+  ): Promise<Map<string, LocationSnapshot>>;
+  /** Store a position uploaded by a phone (every few seconds). */
+  insert(
+    ctx: RepoContext,
+    input: {
+      matchId: string;
+      playerId: string;
+      lat: number;
+      lng: number;
+      accuracyMetres: number | null;
+      pingIndex: number;
+      recordedAt: number;
+    },
+  ): Promise<LocationRow>;
 }

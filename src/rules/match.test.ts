@@ -7,6 +7,7 @@ import {
   matchEndsAt,
   pingSchedule,
   timerExpired,
+  uploadSchedule,
   withinEventWindow,
 } from "./match";
 
@@ -125,10 +126,10 @@ describe("match windows", () => {
 describe("end conditions", () => {
   const endsAt = START + 120 * MINUTE;
 
-  it("keeps the match running while Shadows remain", () => {
+  it("keeps the match running while Shadows remain active", () => {
     const end = matchEndState({
       totalShadows: 3,
-      taggedShadows: 2,
+      activeShadows: 1,
       nowMs: START + 30 * MINUTE,
       endsAtMs: endsAt,
     });
@@ -139,32 +140,44 @@ describe("end conditions", () => {
   it("gives the Hunters the win the moment the last Shadow is tagged", () => {
     const end = matchEndState({
       totalShadows: 3,
-      taggedShadows: 3,
+      activeShadows: 0,
       nowMs: START + 30 * MINUTE,
       endsAtMs: endsAt,
     });
     expect(end).toEqual({
       ended: true,
       winner: "hunters",
-      reason: "all_shadows_tagged",
+      reason: "no_active_shadows",
     });
+  });
+
+  it("counts a Shadow removed by an invigilator towards the Hunters' win", () => {
+    // One Shadow tagged, one removed, one eliminated: no active Shadow is left.
+    const end = matchEndState({
+      totalShadows: 3,
+      activeShadows: 0,
+      nowMs: START + 40 * MINUTE,
+      endsAtMs: endsAt,
+    });
+    expect(end.winner).toBe("hunters");
+    expect(end.reason).toBe("no_active_shadows");
   });
 
   it("gives the Hunters a tag landed on the final whistle", () => {
     const end = matchEndState({
       totalShadows: 1,
-      taggedShadows: 1,
+      activeShadows: 0,
       nowMs: endsAt + 30_000,
       endsAtMs: endsAt,
     });
     expect(end.winner).toBe("hunters");
-    expect(end.reason).toBe("all_shadows_tagged");
+    expect(end.reason).toBe("no_active_shadows");
   });
 
   it("gives surviving Shadows the win when the timer runs out", () => {
     const end = matchEndState({
       totalShadows: 3,
-      taggedShadows: 2,
+      activeShadows: 1,
       nowMs: endsAt,
       endsAtMs: endsAt,
     });
@@ -178,7 +191,7 @@ describe("end conditions", () => {
   it("never ends before the timer with Shadows still out", () => {
     const end = matchEndState({
       totalShadows: 3,
-      taggedShadows: 0,
+      activeShadows: 3,
       nowMs: endsAt - 1,
       endsAtMs: endsAt,
     });
@@ -188,11 +201,85 @@ describe("end conditions", () => {
   it("refuses to end on a roster with no Shadows", () => {
     const end = matchEndState({
       totalShadows: 0,
-      taggedShadows: 0,
+      activeShadows: 0,
       nowMs: endsAt + 10 * MINUTE,
       endsAtMs: endsAt,
     });
     expect(end.ended).toBe(false);
     expect(end.winner).toBeNull();
+  });
+});
+
+describe("position uploads", () => {
+  const live = START + 20 * MINUTE;
+
+  it("accepts uploads every few seconds, not every three minutes", () => {
+    const first = uploadSchedule({
+      status: "live",
+      lastUploadAtMs: null,
+      nowMs: live,
+      config,
+    });
+    expect(first.allowed).toBe(true);
+
+    const tooSoon = uploadSchedule({
+      status: "live",
+      lastUploadAtMs: live,
+      nowMs: live + config.uploadIntervalSeconds * 1000 - 1,
+      config,
+    });
+    expect(tooSoon.allowed).toBe(false);
+    expect(tooSoon.reason).toBe("too_soon");
+
+    const next = uploadSchedule({
+      status: "live",
+      lastUploadAtMs: live,
+      nowMs: live + config.uploadIntervalSeconds * 1000,
+      config,
+    });
+    expect(next.allowed).toBe(true);
+  });
+
+  it("allows many uploads inside one three-minute ping window", () => {
+    const intervalMs = config.uploadIntervalSeconds * 1000;
+    let last: number | null = live;
+    let accepted = 0;
+    for (let t = live + intervalMs; t < live + config.pingIntervalMinutes * 60_000; t += intervalMs) {
+      const schedule = uploadSchedule({
+        status: "live",
+        lastUploadAtMs: last,
+        nowMs: t,
+        config,
+      });
+      if (schedule.allowed) {
+        accepted += 1;
+        last = t;
+      }
+    }
+    expect(accepted).toBeGreaterThan(10);
+  });
+
+  it("refuses uploads before the head start ends", () => {
+    for (const status of ["lobby", "locked", "headstart"] as const) {
+      expect(
+        uploadSchedule({
+          status,
+          lastUploadAtMs: null,
+          nowMs: live,
+          config,
+        }).allowed,
+      ).toBe(false);
+    }
+  });
+
+  it("refuses uploads after the match ends", () => {
+    expect(
+      uploadSchedule({
+        status: "ended",
+        lastUploadAtMs: null,
+        nowMs: live,
+        config,
+      }).reason,
+    ).toBe("not_live");
   });
 });

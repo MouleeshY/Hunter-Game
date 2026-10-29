@@ -13,6 +13,7 @@ export type TagRejectionCode =
   | "target_already_tagged"
   | "target_not_in_play"
   | "missing_location"
+  | "stale_location"
   | "too_far";
 
 export type TagVerdict =
@@ -56,7 +57,7 @@ export function validateTagScan(input: {
     input;
 
   const timerRunning =
-    match.status === "active" &&
+    match.status === "live" &&
     match.startedAtMs !== null &&
     (match.endsAtMs === null || input.nowMs <= match.endsAtMs);
   if (!timerRunning) return { ok: false, code: "match_not_active" };
@@ -80,6 +81,16 @@ export function validateTagScan(input: {
 
   if (!scannerLocation || !targetLocation) {
     return { ok: false, code: "missing_location" };
+  }
+
+  // Both readings must be recent: the Hunter's phone sends its GPS reading with
+  // the scan, and the Shadow's phone refreshes its position when the QR opens.
+  const freshnessMs = config.tagFreshnessSeconds * 1000;
+  if (
+    input.nowMs - scannerLocation.recordedAtMs > freshnessMs ||
+    input.nowMs - targetLocation.recordedAtMs > freshnessMs
+  ) {
+    return { ok: false, code: "stale_location" };
   }
 
   const distance = distanceMetres(scannerLocation, targetLocation);

@@ -1,13 +1,12 @@
 /**
- * Pure team-assignment and zone-picking helpers.
+ * Pure team-assignment and zone-centre helpers.
  *
- * These are plain TypeScript with no Convex imports. They belong here (and in
- * `src/rules` for the rule math) rather than in `src/convex` so the same logic
- * can be reused unchanged when we move to Supabase.
+ * Plain TypeScript with no Convex, React or database imports, so the same logic
+ * is reusable from any provider. Ratio and minimums come from `RULES_CONFIG`.
  */
-
-import type { Role, PlayerMode, LatLng } from "../rules/types";
-import { RULES_CONFIG } from "../rules/config";
+import { RULES_CONFIG, type MatchConfig } from "./config";
+import type { LatLng, Role } from "./types";
+import { distanceMetres } from "./zone";
 
 // ---- team assignment --------------------------------------------------------
 
@@ -19,32 +18,30 @@ export interface TeamConfig {
 
 /** Derive a Hunter-to-Shadow ratio that scales with the player count and
  *   always leaves at least one of each team. */
-export function teamConfigForCount(playerCount: number): TeamConfig {
+export function teamConfigForCount(
+  playerCount: number,
+  config: MatchConfig = RULES_CONFIG,
+): TeamConfig {
   if (playerCount < 2) {
-    // The rules assume two teams; a single player cannot be both.
     throw new Error("A match needs at least two players to form two teams.");
   }
 
-  // The config expresses the ratio as a rough template (for example 1 Hunter
-  // for every 3 players). We scale it with the actual count, never drop below
-  // one Hunter or one Shadow, and never exceed the player count.
   const { hunterCount: templateHunters, shadowCount: templateShadows } =
-    RULES_CONFIG.hunterSplit;
+    config.hunterSplit;
 
   const templateTotal = templateHunters + templateShadows;
   if (templateTotal <= 0) {
     throw new Error("hunterSplit sums to zero in config.");
   }
 
-  // Scale the template to the actual player count, rounding Hunters down so
-  // Shadows absorb the remainder.
+  // Scale the template to the actual player count, rounding Hunters so Shadows
+  // absorb the remainder.
   const scaledHunters = Math.round(
     (playerCount * templateHunters) / templateTotal,
   );
-  const scaledShadows = playerCount - scaledHunters;
 
   // Clip to keep at least one of each team.
-  let hunters = Math.max(1, Math.min(playerCount - 1, scaledHunters));
+  const hunters = Math.max(1, Math.min(playerCount - 1, scaledHunters));
   const shadows = playerCount - hunters;
 
   return { hunterCount: hunters, shadowCount: shadows };
@@ -55,8 +52,9 @@ export function teamConfigForCount(playerCount: number): TeamConfig {
 export function assignTeams(
   playerCount: number,
   seed: number,
+  config: MatchConfig = RULES_CONFIG,
 ): { role: Role }[] {
-  const { hunterCount, shadowCount } = teamConfigForCount(playerCount);
+  const { hunterCount, shadowCount } = teamConfigForCount(playerCount, config);
   if (hunterCount + shadowCount !== playerCount) {
     throw new Error("teamConfigForCount did not sum to playerCount.");
   }
@@ -85,34 +83,39 @@ export function assignTeams(
 
 /** Pick a random centre inside a circle of radius `maxDistanceMetres` around the
  *   organiser's position. If `avoid` is set the returned centre must be at least
- *   that far from the avoided point, re-rolling up to a fixed budget. */
+ *   `minDistanceFromAvoidMetres` away, re-rolling up to a fixed budget. */
 export function randomZoneCentre(args: {
   organiserLat: number;
   organiserLng: number;
   maxDistanceMetres: number;
   avoid?: LatLng | null;
+  minDistanceFromAvoidMetres?: number;
 }): LatLng {
-  const { organiserLat, organiserLng, maxDistanceMetres, avoid } = args;
+  const {
+    organiserLat,
+    organiserLng,
+    maxDistanceMetres,
+    avoid,
+    minDistanceFromAvoidMetres = 30,
+  } = args;
   if (maxDistanceMetres <= 0) {
     throw new Error("maxDistanceMetres must be positive.");
   }
 
-  let attempt = 0;
   const budget = 100;
-  while (attempt < budget) {
-    attempt++;
+  for (let attempt = 0; attempt < budget; attempt += 1) {
     const centre = randomPointInCircle(
       organiserLat,
       organiserLng,
       maxDistanceMetres,
     );
     if (avoid == null) return centre;
-    if (distanceMetres(centre, avoid) >= 30) return centre;
+    if (distanceMetres(centre, avoid) >= minDistanceFromAvoidMetres) {
+      return centre;
+    }
   }
 
-  // Fall back to a point directly south of the organiser when re-rolls keep
-  // landing on the avoided point. This should practically never happen with a
-  // 500 m circle and a 30 m exclusion.
+  // Fall back to another draw when re-rolls keep landing on the avoided point.
   return randomPointInCircle(organiserLat, organiserLng, maxDistanceMetres);
 }
 
@@ -122,13 +125,12 @@ export function randomPointInCircle(
   orgLng: number,
   radiusMetres: number,
 ): LatLng {
-  // Uniform in area: pick a random radius and a random angle, then convert.
   const r = radiusMetres * Math.sqrt(Math.random());
   const angleRad = Math.random() * 2 * Math.PI;
 
   // One degree of latitude is about 111 km. Longitude shrinks with cos(lat).
   const metresPerLatDegree = 111320;
-  const metresPerLngDegree = 111320 * Math.cos(toRad(orgLat));
+  const metresPerLngDegree = 111320 * Math.cos((orgLat * Math.PI) / 180);
 
   const dLat = (r * Math.cos(angleRad)) / metresPerLatDegree;
   const dLng = (r * Math.sin(angleRad)) / metresPerLngDegree;
@@ -137,20 +139,4 @@ export function randomPointInCircle(
     lat: orgLat + dLat,
     lng: orgLng + dLng,
   };
-}
-
-// ---- geometry ---------------------------------------------------------------
-
-const EARTH_RADIUS_M = 6_371_000;
-const toRad = (deg: number) => (deg * Math.PI) / 180;
-
-function distanceMetres(a: LatLng, b: LatLng): number {
-  const dLat = toRad(b.lat - a.lat);
-  const dLng = toRad(b.lng - a.lng);
-  const lat1 = toRad(a.lat);
-  const lat2 = toRad(b.lat);
-  const h =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
-  return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(h)));
 }

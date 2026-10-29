@@ -1,3 +1,5 @@
+import type { RepoContext } from "./context";
+
 export type ComplaintStatus = "open" | "upheld" | "dismissed";
 
 export interface ComplaintRow {
@@ -15,15 +17,22 @@ export interface ComplaintRow {
 }
 
 export interface ComplaintRepository {
-  create(input: {
-    matchId: string;
-    complainantId: string;
-    accusedId: string;
-    note: string | null;
-    configComplaintResponseMinutes: number;
-  }): Promise<ComplaintRow>;
-  listOpenByMatch(matchId: string): Promise<ComplaintRow[]>;
+  create(
+    ctx: RepoContext,
+    input: {
+      matchId: string;
+      complainantId: string;
+      accusedId: string;
+      note: string | null;
+      configComplaintResponseMinutes: number;
+    },
+  ): Promise<ComplaintRow>;
+  listOpenByMatch(
+    ctx: RepoContext,
+    matchId: string,
+  ): Promise<ComplaintRow[]>;
   patch(
+    ctx: RepoContext,
     id: string,
     patch: {
       status?: ComplaintStatus;

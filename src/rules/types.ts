@@ -1,18 +1,18 @@
 /**
- * Pure types and helpers the rules engine needs.
+ * Pure types the rules engine needs.
  *
- * This module is intentionally free of Convex and React imports. It re-declares
- * the shapes the engine works with so that it can be reused unchanged when we
- * move to Supabase.
+ * This module has no Convex, React or database imports. Convex validators for
+ * the same literals live in `src/convex/validators.ts`, so the engine can be
+ * reused unchanged when the data layer moves to Supabase.
  */
 
 // ---- Roles & lifecycle ------------------------------------------------------
 
-/** [RULE] Two teams, Hunters and Shadows, assigned at random. */
+/** [RULE] Two teams, Hunters and Shadows, assigned at random at start. */
 export type Role = "hunter" | "shadow";
 
 /** What a tagged Shadow does for the rest of the match. Set before the match,
- *   changeable by the organiser or an invigilator at any time. */
+ *  changeable by the organiser or an invigilator at any time. */
 export type PlayerMode = "spectator" | "hunter";
 
 /** Lifecycle state of a player inside a match. */
@@ -23,7 +23,12 @@ export type PlayerStatus =
   | "removed"
   | "eliminated";
 
-/** Match stage that the organiser drives. */
+/**
+ * Match stage the organiser drives.
+ *
+ * lobby → locked → headstart → live → ended
+ * `locked` is optional: the organiser may start straight from the lobby.
+ */
 export type MatchStatus = "lobby" | "locked" | "headstart" | "live" | "ended";
 
 /** Public name choice on the leaderboard. */
@@ -37,11 +42,17 @@ export interface LatLng {
   lng: number;
 }
 
-/** A location as recorded by a position upload / ping. */
+/** A position as recorded by an upload or ping. */
 export interface Location {
   lat: number;
   lng: number;
   recordedAtMs: number;
+}
+
+/** A stored position row, including its accuracy and ping index. */
+export interface LocationSnapshot extends Location {
+  accuracyMetres: number | null;
+  pingIndex: number;
 }
 
 // ---- Minimal data a rule needs ---------------------------------------------

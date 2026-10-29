@@ -7,5 +7,5 @@ export {
   teamConfigForCount,
   assignTeams,
   randomZoneCentre,
-} from "../server/teamOps";
-export type { TeamConfig } from "../server/teamOps";
+} from "../rules/teams";
+export type { TeamConfig } from "../rules/teams";

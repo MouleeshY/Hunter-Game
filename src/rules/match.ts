@@ -1,4 +1,5 @@
 import type { MatchConfig } from "./config";
+import type { MatchStatus } from "./types";
 
 /* ------------------------------------------------------------------ *
  * Timeline: head start, ping interval, event window
@@ -47,6 +48,46 @@ export function pingSchedule(args: {
   return { allowed: true, reason: null, nextAllowedAtMs: nowMs };
 }
 
+export interface UploadSchedule {
+  allowed: boolean;
+  reason: "not_started" | "too_soon" | "not_live" | null;
+  nextAllowedAtMs: number | null;
+}
+
+/**
+ * Position uploads are separate from the 3-minute ping reveal.
+ *
+ * Phones upload every few seconds (config `uploadIntervalSeconds`) so the server
+ * can answer "where is everyone right now" for teammates, invigilators and tag
+ * checks. The ping interval only controls what Hunters are shown. Uploads are
+ * therefore rate-limited to a few seconds, never to three minutes, and they
+ * begin only once the head start is over.
+ */
+export function uploadSchedule(args: {
+  status: MatchStatus;
+  lastUploadAtMs: number | null;
+  nowMs: number;
+  config: MatchConfig;
+}): UploadSchedule {
+  const { status, lastUploadAtMs, nowMs, config } = args;
+
+  if (status === "lobby" || status === "locked" || status === "headstart") {
+    return { allowed: false, reason: "not_started", nextAllowedAtMs: null };
+  }
+  if (status !== "live") {
+    return { allowed: false, reason: "not_live", nextAllowedAtMs: null };
+  }
+
+  if (lastUploadAtMs !== null) {
+    const nextAt = lastUploadAtMs + config.uploadIntervalSeconds * 1000;
+    if (nowMs < nextAt) {
+      return { allowed: false, reason: "too_soon", nextAllowedAtMs: nextAt };
+    }
+  }
+
+  return { allowed: true, reason: null, nextAllowedAtMs: nowMs };
+}
+
 /** When the match timer expires. */
 export function matchEndsAt(startedAtMs: number, config: MatchConfig): number {
   return startedAtMs + config.matchDurationMinutes * 60_000;
@@ -71,28 +112,32 @@ export type MatchEndState =
   | {
       ended: true;
       winner: MatchWinner;
-      reason: "all_shadows_tagged" | "timer_expired";
+      reason: "no_active_shadows" | "timer_expired";
     };
 
 /**
- * Hunters win the moment every Shadow is tagged. Otherwise, surviving Shadows
- * win when the match timer runs out. "All tagged" is checked first, so a final
- * tag landed on the whistle still belongs to the Hunters.
+ * Hunters win when no Shadow remains active — every Shadow is tagged, removed
+ * by an invigilator, or eliminated for being out of the zone. Otherwise the
+ * Shadows win when the match timer runs out.
+ *
+ * The roster size is only used to refuse ending a roster with no Shadows at
+ * all; the win condition itself is "zero active Shadows". A tag landed on the
+ * final whistle still belongs to the Hunters, so this is checked first.
  */
 export function matchEndState(args: {
   totalShadows: number;
-  taggedShadows: number;
+  activeShadows: number;
   nowMs: number;
   endsAtMs: number | null;
 }): MatchEndState {
-  const { totalShadows, taggedShadows, nowMs, endsAtMs } = args;
+  const { totalShadows, activeShadows, nowMs, endsAtMs } = args;
 
-  if (totalShadows > 0 && taggedShadows >= totalShadows) {
-    return { ended: true, winner: "hunters", reason: "all_shadows_tagged" };
-  }
   if (totalShadows <= 0) {
     // No Shadows in the roster: nothing can end the match. Caller's job to fix.
     return { ended: false, winner: null, reason: null };
+  }
+  if (activeShadows <= 0) {
+    return { ended: true, winner: "hunters", reason: "no_active_shadows" };
   }
   if (endsAtMs !== null && nowMs >= endsAtMs) {
     return { ended: true, winner: "shadows", reason: "timer_expired" };

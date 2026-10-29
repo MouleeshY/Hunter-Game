@@ -280,3 +280,39 @@ describe("out-of-zone grace time", () => {
     expect(state.drainTicksOwed).toBe(expected);
   });
 });
+
+describe("minimum zone radius", () => {
+  it("never shrinks below the configured floor", () => {
+    expect(config.minZoneRadiusMetres).toBe(100);
+    const radius = zoneRadiusAtMinute({
+      minute: 600,
+      activePlayerCount: 1,
+      initialRadiusMetres: 300,
+      config,
+    });
+    expect(radius).toBe(config.minZoneRadiusMetres);
+  });
+
+  it("still shrinks normally above the floor", () => {
+    const radius = zoneRadiusAtMinute({
+      minute: 10,
+      activePlayerCount: 40,
+      initialRadiusMetres: 1000,
+      config,
+    });
+    expect(radius).toBeCloseTo(850, 5);
+    expect(radius).toBeGreaterThan(config.minZoneRadiusMetres);
+  });
+
+  it("stays at the floor for every late minute", () => {
+    for (const minute of [60, 90, 120, 180]) {
+      const radius = zoneRadiusAtMinute({
+        minute,
+        activePlayerCount: 2,
+        initialRadiusMetres: 300,
+        config,
+      });
+      expect(radius).toBeGreaterThanOrEqual(config.minZoneRadiusMetres);
+    }
+  });
+});

@@ -1,33 +1,36 @@
+import type { DisplayNameMode } from "../../rules/types";
+import type { RepoContext } from "./context";
+
+export interface LeaderboardBreakdown {
+  alive: number;
+  tags: number;
+  bonuses: number;
+  drains: number;
+}
+
 export interface LeaderboardRow {
   id: string;
   matchId: string;
   playerId: string;
   displayName: string;
-  displayNameMode: "nickname" | "real";
+  displayNameMode: DisplayNameMode;
   totalPoints: number;
-  breakdown: {
-    alive: number;
-    tags: number;
-    bonuses: number;
-    drains: number;
-  };
+  breakdown: LeaderboardBreakdown;
   updatedAt: number;
 }
 
 export interface LeaderboardRepository {
-  upsert(input: {
-    matchId: string;
-    playerId: string;
-    displayName: string;
-    displayNameMode: "nickname" | "real";
-    totalPoints: number;
-    breakdown: {
-      alive: number;
-      tags: number;
-      bonuses: number;
-      drains: number;
-    };
-    at: number;
-  }): Promise<void>;
-  listByMatch(matchId: string): Promise<LeaderboardRow[]>;
+  upsert(
+    ctx: RepoContext,
+    input: {
+      matchId: string;
+      playerId: string;
+      displayName: string;
+      displayNameMode: DisplayNameMode;
+      totalPoints: number;
+      breakdown: LeaderboardBreakdown;
+      at: number;
+    },
+  ): Promise<void>;
+  listByMatch(ctx: RepoContext, matchId: string): Promise<LeaderboardRow[]>;
 }

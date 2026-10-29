@@ -1,9 +1,11 @@
 import type {
-  Role,
+  DisplayNameMode,
   PlayerMode,
-  PlayerStatus,
   PlayerSnapshot,
+  PlayerStatus,
+  Role,
 } from "../../rules/types";
+import type { RepoContext } from "./context";
 
 export interface PlayerRow {
   id: string;
@@ -12,15 +14,17 @@ export interface PlayerRow {
   role: Role;
   mode: PlayerMode;
   status: PlayerStatus;
+  /** What other players see in the lobby. */
+  callSign: string;
+  /** Leaderboard name: nickname or real name, chosen by the player. */
   displayName: string;
-  displayNameMode: "nickname" | "real";
+  displayNameMode: DisplayNameMode;
   /** One plain QR token per match; the tag scan posts this token. */
   qrToken: string;
   points: number;
   joinedAt: number;
   taggedAt: number | null;
   taggedById: string | null;
-  /** Out-of-zone state kept up to date by the position-upload path. */
   outsideSince: number | null;
   outsideSecondsTotal: number;
   chargedDrainTicks: number;
@@ -28,37 +32,43 @@ export interface PlayerRow {
 }
 
 export interface PlayerRepository {
+  findById(ctx: RepoContext, id: string): Promise<PlayerRow | null>;
   findByMatchAndUser(
+    ctx: RepoContext,
     matchId: string,
     userId: string,
   ): Promise<PlayerRow | null>;
   findByMatchAndToken(
+    ctx: RepoContext,
     matchId: string,
     qrToken: string,
   ): Promise<PlayerRow | null>;
-  listByMatch(matchId: string): Promise<PlayerRow[]>;
-  /** Players still in play: active + converted Hunters (tagged with hunter mode). */
-  listActiveByMatch(matchId: string): Promise<PlayerRow[]>;
-  create(input: {
-    matchId: string;
-    userId: string;
-    role: Role;
-    mode: PlayerMode;
-    status: PlayerStatus;
-    displayName: string;
-    displayNameMode: "nickname" | "real";
-    qrToken: string;
-    joinedAt: number;
-  }): Promise<PlayerRow>;
-  patch(id: string, patch: Partial<PlayerRow>): Promise<void>;
-  patchOutZoneState(
+  listByMatch(ctx: RepoContext, matchId: string): Promise<PlayerRow[]>;
+  create(
+    ctx: RepoContext,
+    input: {
+      matchId: string;
+      userId: string;
+      role: Role;
+      mode: PlayerMode;
+      status: PlayerStatus;
+      callSign: string;
+      displayName: string;
+      displayNameMode: DisplayNameMode;
+      qrToken: string;
+      joinedAt: number;
+    },
+  ): Promise<PlayerRow>;
+  patch(
+    ctx: RepoContext,
     id: string,
-    state: {
-      outsideSince?: number | null;
-      outsideSecondsTotal?: number;
-      chargedDrainTicks?: number;
-      warnedAt?: number | null;
+    patch: {
+      role?: Role;
+      mode?: PlayerMode;
       status?: PlayerStatus;
+      points?: number;
+      taggedAt?: number | null;
+      taggedById?: string | null;
     },
   ): Promise<void>;
 }

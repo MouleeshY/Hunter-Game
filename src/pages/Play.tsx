@@ -1,298 +1,632 @@
-import { useState, useCallback } from "react";
-import { useNavigate } from "react-router";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { FormField, FormItem, FormMessage } from "@/components/ui/form";
-import { Label } from "@/components/ui/label";
-import { UseFormReturn, useForm } from "react-hook-form";
+import { useEffect, useState } from "react";
+import { Link } from "react-router";
+import { useMutation, useQuery } from "convex/react";
+import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { RULES_CONFIG } from "@/convex/rules/config";
+import { api } from "@/convex/_generated/api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { RULES_CONFIG } from "@/rules/config";
 
-type CreateMatchValues = z.infer<typeof createMatchSchema>;
-type JoinMatchValues = z.infer<typeof joinMatchSchema>;
-
-type PlayerInLobby = {
-  id: string;
-  displayName: string;
-  role: string;
-};
-
-type View =
-  | { kind: "choose" }
-  | { kind: "creating"; form: UseFormReturn<CreateMatchValues> }
-  | { kind: "created"; roomCode: string }
-  | { kind: "joining"; form: UseFormReturn<JoinMatchValues> }
-  | { kind: "joined"; roomCode: string }
-  | { kind: "lobby"; roomCode: string; players: PlayerInLobby[] };
+/* ------------------------------------------------------------------ *\n * Schemas\n * ------------------------------------------------------------------ */
 
 const createMatchSchema = z.object({
   durationMinutes: z
     .number()
-    .min(RULES_CONFIG.eventWindowMinutes.min)
-    .max(RULES_CONFIG.eventWindowMinutes.max),
-  invigilatorCount: z
-    .number()
-    .min(RULES_CONFIG.invigilatorCount.min)
-    .max(RULES_CONFIG.invigilatorCount.max),
-  displayNameMode: z.enum(["nickname", "real"]),
+    .int()
+    .min(RULES_CONFIG.matchDurationRangeMinutes.min)
+    .max(RULES_CONFIG.matchDurationRangeMinutes.max),
+  organiserLat: z.number().min(-90).max(90),
+  organiserLng: z.number().min(-180).max(180),
+  invigilatorOne: z.string().min(2, "Name the first invigilator."),
+  invigilatorTwo: z.string().min(2, "Name the second invigilator."),
+  invigilatorThree: z.string().optional(),
 });
 
 const joinMatchSchema = z.object({
-  roomCode: z
-    .string()
-    .length(5)
-    .max(5)
-    .toUpperCase(),
-  displayName: z
-    .string()
-    .min(1, "Choose a name for the leaderboard")
-    .max(40),
-  callSign: z
-    .string()
-    .min(1, "Choose a call sign")
-    .max(24),
+  roomCode: z.string().min(RULES_CONFIG.roomCodeLength),
+  callSign: z.string().min(2, "Pick a call sign.").max(24),
+  displayName: z.string().min(2, "Pick a leaderboard name.").max(32),
   displayNameMode: z.enum(["nickname", "real"]),
 });
 
-function DurationField({ form }: { form: UseFormReturn<CreateMatchValues> }) {
-  return (
-    <FormField
-      control={form.control}
-      name="durationMinutes"
-      render={({ field }) => (
-        <FormItem>
-          <Label className="text-foreground">Match length</Label>
-          <div className="relative">
-            <Input
-              type="number"
-              min={RULES_CONFIG.eventWindowMinutes.min}
-              max={RULES_CONFIG.eventWindowMinutes.max}
-              {...field}
-              className="uppercase tracking-[0.18em] text-[13px]"
-            />
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-[11px] uppercase tracking-[0.22em]">
-              min
-            </span>
-          </div>
-          <FormMessage />
-          <p className="mt-1.5 text-[11px] text-muted-foreground uppercase tracking-[0.22em]">
-            Organiser chooses any length between {RULES_CONFIG.eventWindowMinutes.min} and{" "}
-            {RULES_CONFIG.eventWindowMinutes.max} minutes.
-          </p>
-        </FormItem>
-      )}
-    />
-  );
-}
+type CreateMatchValues = z.infer<typeof createMatchSchema>;
+type JoinMatchValues = z.infer<typeof joinMatchSchema>;
 
-function InvigilatorsField({ form }: { form: UseFormReturn<CreateMatchValues> }) {
-  return (
-    <FormField
-      control={form.control}
-      name="invigilatorCount"
-      render={({ field }) => (
-        <FormItem>
-          <Label className="text-foreground">Invigilators</Label>
-          <div className="relative">
-            <Input
-              type="number"
-              min={RULES_CONFIG.invigilatorCount.min}
-              max={RULES_CONFIG.invigilatorCount.max}
-              {...field}
-              className="uppercase tracking-[0.18em] text-[13px]"
-            />
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-[11px] uppercase tracking-[0.22em]">
-              people
-            </span>
-          </div>
-          <FormMessage />
-          <p className="mt-1.5 text-[11px] text-muted-foreground uppercase tracking-[0.22em]">
-            2–3 invigilators are named by the organiser at setup. They are not
-            players and have no score.
-          </p>
-        </FormItem>
-      )}
-    />
-  );
-}
-
-function RoomCodeField({ form }: { form: UseFormReturn<JoinMatchValues> }) {
-  return (
-    <FormField
-      control={form.control}
-      name="roomCode"
-      render={({ field }) => (
-        <FormItem>
-          <Label className="text-foreground">Room code</Label>
-          <Input
-            {...field}
-            maxLength={5}
-            className="tracking-[0.32em] uppercase text-[14px]"
-            placeholder="ABCDE"
-          />
-          <FormMessage />
-        </FormItem>
-      )}
-    />
-  );
-}
-
-function DisplayNameField({ form }: { form: UseFormReturn<JoinMatchValues> }) {
-  return (
-    <FormField
-      control={form.control}
-      name="displayName"
-      render={({ field }) => (
-        <FormItem>
-          <Label className="text-foreground">Leaderboard name</Label>
-          <Input
-            {...field}
-            className="uppercase tracking-[0.18em] text-[13px]"
-            placeholder="How you appear on the leaderboard"
-          />
-          <FormMessage />
-        </FormItem>
-      )}
-    />
-  );
-}
-
-function CallSignField({ form }: { form: UseFormReturn<JoinMatchValues> }) {
-  return (
-    <FormField
-      control={form.control}
-      name="callSign"
-      render={({ field }) => (
-        <FormItem>
-          <Label className="text-foreground">Call sign</Label>
-          <Input
-            {...field}
-            className="uppercase tracking-[0.18em] text-[13px]"
-            placeholder="What friends call you on the run"
-          />
-          <FormMessage />
-        </FormItem>
-      )}
-    />
-  );
-}
+/* ------------------------------------------------------------------ *\n * Small pieces\n * ------------------------------------------------------------------ */
 
 function CopyButton({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
-
-  const copy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    } catch {
-      // clipboard may be unavailable in some environments; ignore silently
-    }
-  }, [value]);
-
   return (
     <Button
+      type="button"
       variant="outline"
-      size="lg"
-      className="h-11 uppercase tracking-[0.18em]"
-      onClick={copy}
+      className="h-10 uppercase tracking-[0.18em]"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(value);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1600);
+        } catch {
+          setCopied(false);
+        }
+      }}
     >
-      {copied ? "Copied" : "Copy room code"}
+      {copied ? "Copied" : "Copy code"}
     </Button>
   );
 }
 
-function LobbyView({ roomCode, players }: { roomCode: string; players: PlayerInLobby[] }) {
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="max-w-xl">
-      <div className="flex items-baseline justify-between">
-        <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
-          Lobby
-        </p>
-        <div className="flex items-center gap-3">
-          <span className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
-            Room
-          </span>
-          <code className="text-[14px] tracking-[0.32em] uppercase">
-            {roomCode}
-          </code>
-          <CopyButton value={roomCode} />
-        </div>
-      </div>
-
-      <div className="mt-6 rounded-xl border border-hairline p-5">
-        <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground mb-3">
-          Players waiting
-        </p>
-        {players.length === 0 ? (
-          <p className="text-[13px] text-muted-foreground uppercase tracking-[0.18em]">
-            No one has joined yet.
-          </p>
-        ) : (
-          <ul className="space-y-2">
-            {players.map((p) => (
-              <li
-                key={p.id}
-                className="flex justify-between rounded-lg border border-hairline px-3 py-2 text-[13px] uppercase tracking-[0.18em]"
-              >
-                <span className="text-foreground">{p.displayName}</span>
-                <span className="text-muted-foreground">{p.role}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      <p className="mt-4 text-center text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
-        Waiting for the organiser to start the match.
-      </p>
+    <div className="grid gap-2">
+      <Label className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+        {label}
+      </Label>
+      {children}
+      {hint && <p className="text-[12px] text-muted-foreground">{hint}</p>}
     </div>
   );
 }
 
-export default function Play() {
-  const navigate = useNavigate();
-  const [view, setView] = useState<View>({ kind: "choose" });
+function useNow(intervalMs = 1000): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}
 
-  const createForm = useForm<CreateMatchValues>({
+/* ------------------------------------------------------------------ *\n * Create form — useForm lives at the top level of this component\n * ------------------------------------------------------------------ */
+
+function CreateRoomForm({
+  onCreated,
+  onBack,
+}: {
+  onCreated: (roomCode: string) => void;
+  onBack: () => void;
+}) {
+  const createRoom = useMutation(api.rooms.createRoom);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const form = useForm<CreateMatchValues>({
     resolver: zodResolver(createMatchSchema),
     defaultValues: {
       durationMinutes: RULES_CONFIG.matchDurationMinutes,
-      invigilatorCount: RULES_CONFIG.invigilatorCount.min,
-      displayNameMode: "nickname",
+      organiserLat: 51.5074,
+      organiserLng: -0.1278,
+      invigilatorOne: "",
+      invigilatorTwo: "",
+      invigilatorThree: "",
     },
   });
 
-  const joinForm = useForm<JoinMatchValues>({
+  const submit = form.handleSubmit(async (values) => {
+    setError(null);
+    setSubmitting(true);
+    try {
+      const names = [
+        values.invigilatorOne,
+        values.invigilatorTwo,
+        values.invigilatorThree ?? "",
+      ].filter((name) => name.trim().length > 0);
+      const created = await createRoom({
+        matchDurationMinutes: values.durationMinutes,
+        organiserLat: values.organiserLat,
+        organiserLng: values.organiserLng,
+        invigilatorNames: names,
+      });
+      onCreated(created.roomCode);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Could not create the room.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  });
+
+  const { errors } = form.formState;
+
+  return (
+    <div className="rounded-xl border border-hairline p-6">
+      <p className="mb-4 text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+        Organiser setup
+      </p>
+      <form onSubmit={submit}>
+        <div className="grid gap-5">
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Field
+              label="Match length (minutes)"
+              hint={`${RULES_CONFIG.matchDurationRangeMinutes.min}–${RULES_CONFIG.matchDurationRangeMinutes.max} minutes`}
+            >
+              <Input
+                type="number"
+                min={RULES_CONFIG.matchDurationRangeMinutes.min}
+                max={RULES_CONFIG.matchDurationRangeMinutes.max}
+                {...form.register("durationMinutes", { valueAsNumber: true })}
+              />
+            </Field>
+            <Field
+              label="Invigilators"
+              hint={`${RULES_CONFIG.invigilatorCount.min}–${RULES_CONFIG.invigilatorCount.max} named people, not players`}
+            >
+              <div className="grid gap-2">
+                <Input
+                  placeholder="Invigilator one"
+                  {...form.register("invigilatorOne")}
+                />
+                <Input
+                  placeholder="Invigilator two"
+                  {...form.register("invigilatorTwo")}
+                />
+                <Input
+                  placeholder="Invigilator three (optional)"
+                  {...form.register("invigilatorThree")}
+                />
+              </div>
+            </Field>
+          </div>
+
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Field
+              label="Organiser latitude"
+              hint={`Centre is picked within ${RULES_CONFIG.centrePickDistanceMetres} m of this point`}
+            >
+              <Input
+                type="number"
+                step="0.0001"
+                {...form.register("organiserLat", { valueAsNumber: true })}
+              />
+            </Field>
+            <Field label="Organiser longitude">
+              <Input
+                type="number"
+                step="0.0001"
+                {...form.register("organiserLng", { valueAsNumber: true })}
+              />
+            </Field>
+          </div>
+
+          {(errors.invigilatorOne ?? errors.invigilatorTwo) && (
+            <p className="text-[12px] text-destructive">
+              {errors.invigilatorOne?.message ?? errors.invigilatorTwo?.message}
+            </p>
+          )}
+          {error && <p className="text-[12px] text-destructive">{error}</p>}
+
+          <div className="flex justify-end gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="lg"
+              className="h-11 uppercase tracking-[0.18em]"
+              onClick={onBack}
+            >
+              Back
+            </Button>
+            <Button
+              type="submit"
+              size="lg"
+              disabled={submitting}
+              className="h-11 uppercase tracking-[0.18em]"
+            >
+              {submitting ? "Creating…" : "Create room"}
+            </Button>
+          </div>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ *\n * Join form — useForm lives at the top level of this component\n * ------------------------------------------------------------------ */
+
+function JoinRoomForm({
+  onJoined,
+  onBack,
+}: {
+  onJoined: (roomCode: string) => void;
+  onBack: () => void;
+}) {
+  const joinRoom = useMutation(api.rooms.joinRoom);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const form = useForm<JoinMatchValues>({
     resolver: zodResolver(joinMatchSchema),
     defaultValues: {
       roomCode: "",
-      displayName: "",
       callSign: "",
+      displayName: "",
       displayNameMode: "nickname",
     },
   });
 
-  const handleCreate = useCallback(
-    (form: UseFormReturn<CreateMatchValues>) => {
-      const values = form.getValues();
-      // Placeholder server path for Stage 2 — the real create mutation is wired
-      // behind the scenes when this route is served by the app shell.
-      const roomCode = "ABCDE";
-      setView({ kind: "created", roomCode });
-    },
-    [],
-  );
+  const submit = form.handleSubmit(async (values) => {
+    setError(null);
+    setSubmitting(true);
+    try {
+      const joined = await joinRoom({
+        roomCode: values.roomCode,
+        callSign: values.callSign,
+        displayName: values.displayName,
+        displayNameMode: values.displayNameMode,
+      });
+      onJoined(joined.roomCode);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Could not join the room.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  });
 
-  const handleJoin = useCallback(
-    (form: UseFormReturn<JoinMatchValues>) => {
-      const values = form.getValues();
-      // Placeholder server path for Stage 2.
-      setView({ kind: "joined", roomCode: values.roomCode });
-    },
-    [],
+  const [mode, setMode] = useState<"nickname" | "real">("nickname");
+  const { errors } = form.formState;
+
+  return (
+    <div className="rounded-xl border border-hairline p-6">
+      <p className="mb-4 text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+        Join a room
+      </p>
+      <form onSubmit={submit}>
+        <div className="grid gap-5">
+          <Field
+            label="Room code"
+            hint={`${RULES_CONFIG.roomCodeLength} characters, given by the organiser`}
+          >
+            <Input
+              autoComplete="off"
+              className="uppercase tracking-[0.3em]"
+              maxLength={RULES_CONFIG.roomCodeLength}
+              {...form.register("roomCode")}
+            />
+          </Field>
+          {errors.roomCode && (
+            <p className="text-[12px] text-destructive">
+              {errors.roomCode.message}
+            </p>
+          )}
+
+          <Field label="Call sign" hint="What other players see in the lobby">
+            <Input autoComplete="off" {...form.register("callSign")} />
+          </Field>
+          {errors.callSign && (
+            <p className="text-[12px] text-destructive">
+              {errors.callSign.message}
+            </p>
+          )}
+
+          <Field label="Leaderboard name">
+            <Input autoComplete="off" {...form.register("displayName")} />
+          </Field>
+          {errors.displayName && (
+            <p className="text-[12px] text-destructive">
+              {errors.displayName.message}
+            </p>
+          )}
+
+          <div className="grid gap-2">
+            <Label className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+              Show on the leaderboard
+            </Label>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={mode === "nickname" ? "default" : "outline"}
+                className="h-10 flex-1 uppercase tracking-[0.18em]"
+                onClick={() => {
+                  setMode("nickname");
+                  form.setValue("displayNameMode", "nickname");
+                }}
+              >
+                Nickname
+              </Button>
+              <Button
+                type="button"
+                variant={mode === "real" ? "default" : "outline"}
+                className="h-10 flex-1 uppercase tracking-[0.18em]"
+                onClick={() => {
+                  setMode("real");
+                  form.setValue("displayNameMode", "real");
+                }}
+              >
+                Real name
+              </Button>
+            </div>
+          </div>
+
+          {error && <p className="text-[12px] text-destructive">{error}</p>}
+
+          <div className="flex justify-end gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="lg"
+              className="h-11 uppercase tracking-[0.18em]"
+              onClick={onBack}
+            >
+              Back
+            </Button>
+            <Button
+              type="submit"
+              size="lg"
+              disabled={submitting}
+              className="h-11 uppercase tracking-[0.18em]"
+            >
+              {submitting ? "Joining…" : "Join room"}
+            </Button>
+          </div>
+        </div>
+      </form>
+    </div>
   );
+}
+
+/* ------------------------------------------------------------------ *\n * Lobby\n * ------------------------------------------------------------------ */
+
+const STATUS_COPY: Record<string, string> = {
+  lobby: "Lobby open — players can still join",
+  locked: "Roster locked — no one else can join",
+  headstart: "Head start running — pings begin when it ends",
+  live: "Match live",
+  ended: "Match ended",
+};
+
+function LobbyView({
+  roomCode,
+  onLeave,
+}: {
+  roomCode: string;
+  onLeave: () => void;
+}) {
+  const lobby = useQuery(api.rooms.lobby, { roomCode });
+  const lockRoster = useMutation(api.rooms.lockRoster);
+  const startRoom = useMutation(api.rooms.startRoom);
+  const rerollCentre = useMutation(api.rooms.rerollCentreHandler);
+  const now = useNow();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  if (lobby === undefined) {
+    return (
+      <p className="text-center text-[13px] uppercase tracking-[0.18em] text-muted-foreground">
+        Loading the lobby…
+      </p>
+    );
+  }
+  if (lobby === null) {
+    return (
+      <p className="text-center text-[13px] text-muted-foreground">
+        That room is no longer available.
+      </p>
+    );
+  }
+
+  const headStartLeft =
+    lobby.headStartEndsAt === null
+      ? null
+      : Math.max(0, lobby.headStartEndsAt - now);
+
+  const run = async (action: () => Promise<unknown>, fallback: string) => {
+    setError(null);
+    setBusy(true);
+    try {
+      await action();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : fallback);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="grid gap-8">
+      <div className="rounded-xl border border-hairline p-6 text-center">
+        <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+          Room code
+        </p>
+        <p className="mt-2 font-display text-5xl tracking-[0.16em]">
+          {lobby.roomCode}
+        </p>
+        <div className="mt-5 flex justify-center">
+          <CopyButton value={lobby.roomCode} />
+        </div>
+        <p className="mt-5 text-[12px] uppercase tracking-[0.18em] text-muted-foreground">
+          {STATUS_COPY[lobby.status] ?? lobby.status}
+        </p>
+        {lobby.status === "headstart" && headStartLeft !== null && (
+          <p className="mt-1 text-[13px] text-muted-foreground">
+            Pings in {Math.ceil(headStartLeft / 1000)}s
+          </p>
+        )}
+        {lobby.startedAt !== null && lobby.endsAt !== null && (
+          <p className="mt-1 text-[12px] text-muted-foreground">
+            Timer ends {new Date(lobby.endsAt).toLocaleTimeString()}
+          </p>
+        )}
+      </div>
+
+      <div className="grid gap-6 sm:grid-cols-2">
+        <div className="rounded-xl border border-hairline p-6">
+          <div className="flex items-baseline justify-between">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+              Players
+            </p>
+            <p className="text-[12px] text-muted-foreground">
+              {lobby.playerCount} / {lobby.softCapPlayers} · min{" "}
+              {lobby.minPlayers}
+            </p>
+          </div>
+          <ul className="mt-4 grid gap-2">
+            {lobby.players.length === 0 && (
+              <li className="text-[13px] text-muted-foreground">
+                No one has joined yet.
+              </li>
+            )}
+            {lobby.players.map((player) => (
+              <li
+                key={player.id}
+                className="flex items-center justify-between border-b border-hairline pb-2 text-[14px] last:border-0"
+              >
+                <span>{player.callSign}</span>
+                {player.id === lobby.me.playerId && (
+                  <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                    You
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="rounded-xl border border-hairline p-6">
+          <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+            Invigilators
+          </p>
+          <ul className="mt-4 grid gap-3">
+            {lobby.invigilators.map((invigilator) => (
+              <li key={invigilator.displayName} className="text-[14px]">
+                <p>{invigilator.displayName}</p>
+                {invigilator.inviteCode ? (
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <code className="rounded border border-hairline px-2 py-1 text-[12px] tracking-[0.16em]">
+                      {invigilator.inviteCode}
+                    </code>
+                    <Link
+                      to={`/monitor?code=${invigilator.inviteCode}`}
+                      className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground underline decoration-hairline underline-offset-4"
+                    >
+                      Invite link
+                    </Link>
+                  </div>
+                ) : (
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                    Invited
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-hairline p-6">
+        <div className="flex items-baseline justify-between">
+          <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+            Play area
+          </p>
+          {lobby.me.isOrganiser &&
+            (lobby.status === "lobby" || lobby.status === "locked") && (
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 uppercase tracking-[0.18em]"
+                disabled={busy}
+                onClick={() =>
+                  run(
+                    () =>
+                      rerollCentre({ matchId: lobby.matchId as never }),
+                    "Could not re-roll the play area.",
+                  )
+                }
+              >
+                Re-roll
+              </Button>
+            )}
+        </div>
+        <p className="mt-2 font-mono text-[13px]">
+          {lobby.zone.centreLat.toFixed(5)}, {lobby.zone.centreLng.toFixed(5)}
+        </p>
+        <p className="mt-1 text-[12px] text-muted-foreground">
+          Starting radius {Math.round(lobby.zone.initialRadiusMetres)} m ·{" "}
+          {lobby.matchDurationMinutes} minute match
+        </p>
+      </div>
+
+      {error && (
+        <p className="text-center text-[12px] text-destructive">{error}</p>
+      )}
+
+      <div className="flex flex-wrap justify-center gap-3">
+        {lobby.me.isOrganiser &&
+          (lobby.status === "lobby" || lobby.status === "locked") && (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="lg"
+                disabled={busy}
+                className="h-11 uppercase tracking-[0.18em]"
+                onClick={() =>
+                  run(
+                    () =>
+                      lockRoster({
+                        matchId: lobby.matchId as never,
+                        locked: lobby.status === "lobby",
+                      }),
+                    "Could not change the roster lock.",
+                  )
+                }
+              >
+                {lobby.status === "lobby" ? "Lock roster" : "Unlock roster"}
+              </Button>
+              <Button
+                type="button"
+                size="lg"
+                disabled={!lobby.canStart || busy}
+                className="h-11 uppercase tracking-[0.18em]"
+                onClick={() =>
+                  run(
+                    () => startRoom({ matchId: lobby.matchId as never }),
+                    "Could not start the match.",
+                  )
+                }
+              >
+                Start match
+              </Button>
+            </>
+          )}
+        <Button
+          type="button"
+          variant="outline"
+          size="lg"
+          className="h-11 uppercase tracking-[0.18em]"
+          onClick={onLeave}
+        >
+          Leave
+        </Button>
+      </div>
+      {lobby.me.isOrganiser && !lobby.canStart && lobby.startBlockedReason && (
+        <p className="text-center text-[12px] text-muted-foreground">
+          {lobby.startBlockedReason}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ *\n * Page\n * ------------------------------------------------------------------ */
+
+type View = "choose" | "creating" | "joining" | "lobby";
+
+export default function Play() {
+  const [view, setView] = useState<View>("choose");
+  const [roomCode, setRoomCode] = useState<string | null>(null);
 
   return (
     <div className="min-h-screen bg-background px-4 pb-16 pt-10 text-foreground sm:px-6">
@@ -302,58 +636,21 @@ export default function Play() {
             Shadow Hunt
           </p>
           <h1 className="mt-3 font-display text-4xl tracking-tight">
-            {view.kind === "creating" || view.kind === "created" ? (
-              <>Create a room</>
-            ) : view.kind === "joining" || view.kind === "joined" ? (
-              <>Join a room</>
-            ) : (
-              <>Join or create a room</>
-            )}
+            {view === "lobby" ? "The lobby" : "Join or create a room"}
           </h1>
-          <p className="mt-2 max-w-md mx-auto text-[13px] text-muted-foreground">
-            {view.kind === "choose" && (
-              <>
-                Start with either the organiser creating a room, or a player
-                joining one through its five-character code.
-              </>
-            )}
-            {view.kind === "creating" && (
-              <>
-                Set the match length and how many invigilators will watch the
-                match. The organiser picks the play area when the match starts.
-              </>
-            )}
-            {view.kind === "created" && (
-              <>Share the room code with the people who will play. They will join through it and wait in the lobby.</>
-            )}
-            {view.kind === "joining" && (
-              <>
-                Type a five-character room code, then choose how you appear on the
-                leaderboard.
-              </>
-            )}
-            {view.kind === "joined" && (
-              <>You are in the lobby. The play area will be picked when the organiser starts the match.</>
-            )}
+          <p className="mx-auto mt-2 max-w-md text-[13px] text-muted-foreground">
+            {view === "lobby"
+              ? "Everyone here sees the same live roster. The organiser locks it and starts the head start."
+              : "The organiser creates a room; everyone else joins with its five-character code."}
           </p>
         </header>
 
-        {view.kind === "choose" && (
+        {view === "choose" && (
           <div className="grid gap-6 sm:grid-cols-2">
             <button
               type="button"
-              className="group relative flex flex-col gap-3 rounded-xl border border-hairline p-6 text-left transition hover:border-foreground/20"
-              onClick={() => {
-                const form = useForm<CreateMatchValues>({
-                  resolver: zodResolver(createMatchSchema),
-                  defaultValues: {
-                    durationMinutes: RULES_CONFIG.matchDurationMinutes,
-                    invigilatorCount: RULES_CONFIG.invigilatorCount.min,
-                    displayNameMode: "nickname",
-                  },
-                });
-                setView({ kind: "creating", form });
-              }}
+              className="flex flex-col gap-3 rounded-xl border border-hairline p-6 text-left transition hover:border-foreground/20"
+              onClick={() => setView("creating")}
             >
               <span className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
                 Organiser
@@ -361,27 +658,14 @@ export default function Play() {
               <span className="font-display text-2xl tracking-tight">
                 Create a room
               </span>
-              <span className="text-[13px] text-muted-foreground uppercase tracking-[0.18em]">
-                Set the match length, invite 2–3 invigilators, then lock the
-                roster and start.
+              <span className="text-[13px] uppercase tracking-[0.18em] text-muted-foreground">
+                Set the length, name 2–3 invigilators, pick the play area.
               </span>
             </button>
-
             <button
               type="button"
-              className="group relative flex flex-col gap-3 rounded-xl border border-hairline p-6 text-left transition hover:border-foreground/20"
-              onClick={() => {
-                const form = useForm<JoinMatchValues>({
-                  resolver: zodResolver(joinMatchSchema),
-                  defaultValues: {
-                    roomCode: "",
-                    displayName: "",
-                    callSign: "",
-                    displayNameMode: "nickname",
-                  },
-                });
-                setView({ kind: "joining", form });
-              }}
+              className="flex flex-col gap-3 rounded-xl border border-hairline p-6 text-left transition hover:border-foreground/20"
+              onClick={() => setView("joining")}
             >
               <span className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
                 Player
@@ -389,182 +673,41 @@ export default function Play() {
               <span className="font-display text-2xl tracking-tight">
                 Join a room
               </span>
-              <span className="text-[13px] text-muted-foreground uppercase tracking-[0.18em]">
-                Enter the five-character code and choose your leaderboard name
-                and call sign.
+              <span className="text-[13px] uppercase tracking-[0.18em] text-muted-foreground">
+                Enter the code, choose a call sign and a leaderboard name.
               </span>
             </button>
           </div>
         )}
 
-        {view.kind === "creating" && (
-          <div className="max-w-xl">
-            <div className="rounded-xl border border-hairline p-6">
-              <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground mb-4">
-                Organiser setup
-              </p>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  handleCreate(createForm);
-                }}
-              >
-                <div className="grid gap-5 sm:grid-cols-2">
-                  <DurationField form={createForm} />
-                  <InvigilatorsField form={createForm} />
-                </div>
-                <div className="mt-5 flex justify-end">
-                  <div className="flex gap-3">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="lg"
-                      className="h-11 uppercase tracking-[0.18em]"
-                      onClick={() => setView({ kind: "choose" })}
-                    >
-                      Back
-                    </Button>
-                    <Button
-                      type="submit"
-                      size="lg"
-                      className="h-11 uppercase tracking-[0.18em]"
-                    >
-                      Create room
-                    </Button>
-                  </div>
-                </div>
-              </form>
-            </div>
-          </div>
+        {view === "creating" && (
+          <CreateRoomForm
+            onBack={() => setView("choose")}
+            onCreated={(code) => {
+              setRoomCode(code);
+              setView("lobby");
+            }}
+          />
         )}
 
-        {view.kind === "created" && (
-          <div className="max-w-xl text-center">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
-              Room created
-            </p>
-            <h1 className="mt-3 font-display text-4xl tracking-tight">
-              {view.roomCode}
-            </h1>
-            <p className="mt-4 text-[14px] text-muted-foreground">
-              Share this code with the people who will play. They will join
-              through it and wait in the lobby.
-            </p>
-            <div className="mt-8 flex justify-center">
-              <CopyButton value={view.roomCode} />
-            </div>
-            <div className="mt-10 flex flex-wrap justify-center gap-3">
-              <Button
-                type="button"
-                size="lg"
-                className="h-11 uppercase tracking-[0.18em]"
-                onClick={() =>
-                  setView({
-                    kind: "lobby",
-                    roomCode: view.roomCode,
-                    players: [],
-                  })
-                }
-              >
-                Open the lobby
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="lg"
-                className="h-11 uppercase tracking-[0.18em]"
-                onClick={() => setView({ kind: "choose" })}
-              >
-                Create another room
-              </Button>
-            </div>
-          </div>
+        {view === "joining" && (
+          <JoinRoomForm
+            onBack={() => setView("choose")}
+            onJoined={(code) => {
+              setRoomCode(code);
+              setView("lobby");
+            }}
+          />
         )}
 
-        {view.kind === "joining" && (
-          <div className="max-w-xl">
-            <div className="rounded-xl border border-hairline p-6">
-              <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground mb-4">
-                Join a room
-              </p>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  handleJoin(joinForm);
-                }}
-              >
-                <div className="grid gap-5">
-                  <RoomCodeField form={joinForm} />
-                  <DisplayNameField form={joinForm} />
-                  <CallSignField form={joinForm} />
-                </div>
-                <div className="mt-5 flex justify-end">
-                  <div className="flex gap-3">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="lg"
-                      className="h-11 uppercase tracking-[0.18em]"
-                      onClick={() => setView({ kind: "choose" })}
-                    >
-                      Back
-                    </Button>
-                    <Button
-                      type="submit"
-                      size="lg"
-                      className="h-11 uppercase tracking-[0.18em]"
-                    >
-                      Join room
-                    </Button>
-                  </div>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {view.kind === "joined" && (
-          <div className="max-w-xl text-center">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
-              Joined {view.roomCode}
-            </p>
-            <h1 className="mt-3 font-display text-4xl tracking-tight">
-              {view.roomCode}
-            </h1>
-            <p className="mt-4 text-[14px] text-muted-foreground">
-              You are in the lobby. The play area will be picked when the
-              organiser starts the match.
-            </p>
-            <div className="mt-10 flex flex-wrap justify-center gap-3">
-              <Button
-                type="button"
-                size="lg"
-                className="h-11 uppercase tracking-[0.18em]"
-                onClick={() =>
-                  setView({
-                    kind: "lobby",
-                    roomCode: view.roomCode,
-                    players: [],
-                  })
-                }
-              >
-                Open the lobby
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="lg"
-                className="h-11 uppercase tracking-[0.18em]"
-                onClick={() => setView({ kind: "choose" })}
-              >
-                Back to start
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {view.kind === "lobby" && (
-          <LobbyView roomCode={view.roomCode} players={view.players} />
+        {view === "lobby" && roomCode && (
+          <LobbyView
+            roomCode={roomCode}
+            onLeave={() => {
+              setRoomCode(null);
+              setView("choose");
+            }}
+          />
         )}
       </main>
     </div>

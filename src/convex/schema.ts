@@ -1,14 +1,14 @@
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { Infer, v } from "convex/values";
-import { matchConfigValidator } from "./rules/config";
 import {
   displayNameModeValidator,
+  matchConfigValidator,
   matchStatusValidator,
   playerModeValidator,
   playerStatusValidator,
   roleValidator as playerRoleValidator,
-} from "./rules/types";
+} from "./validators";
 
 // default user roles. can add / remove based on the project as needed
 export const ROLES = {
@@ -49,6 +49,8 @@ const schema = defineSchema(
      * derived on the server by `zoneRadiusAtMinute`.
      * ---------------------------------------------------------------- */
     matches: defineTable({
+      /** Five-character code players type to join. Unique while open. */
+      roomCode: v.string(),
       status: matchStatusValidator,
       config: matchConfigValidator,
       createdAt: v.number(),
@@ -64,9 +66,19 @@ const schema = defineSchema(
         centreLng: v.number(),
         initialRadiusMetres: v.number(),
       }),
+      /**
+       * Where the organiser stood when the room was created. Used only to
+       * re-roll the centre within the configured distance; never returned to
+       * any client.
+       */
+      organiserPosition: v.optional(
+        v.object({ lat: v.number(), lng: v.number() }),
+      ),
       winner: v.optional(v.union(v.literal("hunters"), v.literal("shadows"))),
       endedAt: v.optional(v.number()),
-    }).index("by_status", ["status"]),
+    })
+      .index("by_status", ["status"])
+      .index("by_room_code", ["roomCode"]),
 
     /* ---------------------------------------------------------------- *
      * Players — a person's place in one match.
@@ -86,6 +98,9 @@ const schema = defineSchema(
       role: playerRoleValidator,
       mode: playerModeValidator,
       status: playerStatusValidator,
+      /** What other players see in the lobby. */
+      callSign: v.string(),
+      /** Leaderboard name: nickname or real name, chosen by the player. */
       displayName: v.string(),
       displayNameMode: displayNameModeValidator,
       /** One plain QR code per match; the tag scan posts this token. */
@@ -169,11 +184,17 @@ const schema = defineSchema(
      * ---------------------------------------------------------------- */
     invigilators: defineTable({
       matchId: v.id("matches"),
-      userId: v.id("users"),
+      /** Named by the organiser at setup; set once the invite is accepted. */
+      userId: v.optional(v.id("users")),
       displayName: v.string(),
+      /** Per-invigilator invite code, generated at match setup. */
+      inviteCode: v.string(),
       active: v.boolean(),
       addedAt: v.number(),
-    }).index("by_match", ["matchId"]),
+    })
+      .index("by_match", ["matchId"])
+      .index("by_invite_code", ["inviteCode"])
+      .index("by_match_user", ["matchId", "userId"]),
 
     /* ---------------------------------------------------------------- *
      * Score events — append-only ledger. The leaderboard is derived from

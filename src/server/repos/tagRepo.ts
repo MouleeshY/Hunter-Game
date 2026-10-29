@@ -1,3 +1,5 @@
+import type { RepoContext } from "./context";
+
 export type TagStatus = "accepted" | "rejected";
 
 export interface TagRow {
@@ -14,15 +16,18 @@ export interface TagRow {
 }
 
 export interface TagRepository {
-  insert(input: {
-    matchId: string;
-    hunterId: string;
-    shadowId: string;
-    status: TagStatus;
-    rejectionCode: string | null;
-    distanceMetres: number | null;
-    assistedById: string | null;
-    scoredPoints: number;
-    at: number;
-  }): Promise<string>;
+  insert(
+    ctx: RepoContext,
+    input: {
+      matchId: string;
+      hunterId: string;
+      shadowId: string;
+      status: TagStatus;
+      rejectionCode?: string | null;
+      distanceMetres?: number | null;
+      assistedById?: string | null;
+      scoredPoints: number;
+      at: number;
+    },
+  ): Promise<string>;
 }

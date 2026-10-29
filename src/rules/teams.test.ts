@@ -1,10 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { RULES_CONFIG } from "../rules/config";
+import { RULES_CONFIG } from "./config";
 import {
   assignTeams,
   randomZoneCentre,
   teamConfigForCount,
-} from "./teamOps";
+} from "./teams";
 
 function roleCounts(result: { role: string }[]) {
   let hunters = 0;
@@ -163,14 +163,6 @@ describe("match creation bounds", () => {
 
 /* ---- tiny helpers ---------------------------------------------------------- */
 
-function hashCode(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) {
-    h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
-  }
-  return h;
-}
-
 function distanceBetween(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
   const toRad = (deg: number) => (deg * Math.PI) / 180;
   const lat1 = toRad(a.lat);
@@ -183,3 +175,29 @@ function distanceBetween(a: { lat: number; lng: number }, b: { lat: number; lng:
     Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
+
+describe("team assignment at every supported roster size", () => {
+  for (const playerCount of [4, 6, 20, 40]) {
+    it(`assigns exactly ${playerCount} players with at least one of each team`, () => {
+      const assignment = assignTeams(playerCount, 20260214 + playerCount);
+      expect(assignment).toHaveLength(playerCount);
+
+      const counts = roleCounts(assignment);
+      expect(counts.hunters + counts.shadows).toBe(playerCount);
+      expect(counts.hunters).toBeGreaterThanOrEqual(1);
+      expect(counts.shadows).toBeGreaterThanOrEqual(1);
+
+      const expected = teamConfigForCount(playerCount);
+      expect(counts.hunters).toBe(expected.hunterCount);
+      expect(counts.shadows).toBe(expected.shadowCount);
+    });
+  }
+
+  it("keeps roughly one Hunter per three players", () => {
+    for (const playerCount of [4, 6, 20, 40]) {
+      const { hunterCount, shadowCount } = teamConfigForCount(playerCount);
+      expect(shadowCount / hunterCount).toBeGreaterThanOrEqual(2);
+      expect(shadowCount / hunterCount).toBeLessThanOrEqual(4);
+    }
+  });
+});
