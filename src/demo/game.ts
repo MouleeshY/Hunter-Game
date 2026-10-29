@@ -480,7 +480,10 @@ function decideHunter(s: GameState, a: Agent) {
   // the circle instead of stacking on one ghost.
   const ordered = alive.slice().sort((x, y) => (x.id < y.id ? -1 : 1));
   const hunters = s.agents.filter((h) => h.team === "hunter");
-  const slot = Math.max(0, hunters.findIndex((h) => h.id === a.id));
+  const slot = Math.max(
+    0,
+    hunters.findIndex((h) => h.id === a.id),
+  );
   const assigned = ordered[slot % ordered.length];
 
   // Close contact beats assignment — take the shadow you can actually see.
@@ -564,7 +567,11 @@ export function stepGame(
     s.pulseFxAt = s.fx;
     const alive = aliveShadows(s);
     for (const a of alive) s.ghosts[a.id] = { x: a.x, y: a.y, at: s.elapsed };
-    log(s, "pulse", `Radar pulse — ${alive.length} signal${alive.length === 1 ? "" : "s"}`);
+    log(
+      s,
+      "pulse",
+      `Radar pulse — ${alive.length} signal${alive.length === 1 ? "" : "s"}`,
+    );
   }
 
   /* movement + AI */

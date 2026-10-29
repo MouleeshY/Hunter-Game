@@ -1,4 +1,11 @@
-import { WORLD, ZONE_CENTER, isLive, isRevealed, you, type GameState } from "@/demo/game";
+import {
+  WORLD,
+  ZONE_CENTER,
+  isLive,
+  isRevealed,
+  you,
+  type GameState,
+} from "@/demo/game";
 
 /* ------------------------------------------------------------------ *
  * The plan view: a thin-lined city drawing with the radar laid over it.
@@ -53,8 +60,18 @@ function buildPlan() {
   }
 
   const streets = [
-    ...cols.map((x) => ({ x1: x, y1: -10, x2: x + (rnd() * 10 - 5), y2: WORLD + 10 })),
-    ...rows.map((y) => ({ x1: -10, y1: y, x2: WORLD + 10, y2: y + (rnd() * 10 - 5) })),
+    ...cols.map((x) => ({
+      x1: x,
+      y1: -10,
+      x2: x + (rnd() * 10 - 5),
+      y2: WORLD + 10,
+    })),
+    ...rows.map((y) => ({
+      x1: -10,
+      y1: y,
+      x2: WORLD + 10,
+      y2: y + (rnd() * 10 - 5),
+    })),
   ];
 
   return { blocks, streets };
@@ -98,7 +115,12 @@ export function Radar({ state, interactive, compact, onMove }: RadarProps) {
       <defs>
         <mask id="zone-outside">
           <rect width={WORLD} height={WORLD} fill="white" />
-          <circle cx={ZONE_CENTER.x} cy={ZONE_CENTER.y} r={state.zone.r} fill="black" />
+          <circle
+            cx={ZONE_CENTER.x}
+            cy={ZONE_CENTER.y}
+            r={state.zone.r}
+            fill="black"
+          />
         </mask>
       </defs>
 
@@ -121,7 +143,14 @@ export function Radar({ state, interactive, compact, onMove }: RadarProps) {
         {streets.map((s, i) => (
           <line key={i} x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} />
         ))}
-        <line x1={-10} y1={690} x2={WORLD + 10} y2={150} strokeOpacity={0.22} strokeWidth={3} />
+        <line
+          x1={-10}
+          y1={690}
+          x2={WORLD + 10}
+          y2={150}
+          strokeOpacity={0.22}
+          strokeWidth={3}
+        />
       </g>
 
       {/* out-of-bounds wash */}
@@ -183,7 +212,12 @@ export function Radar({ state, interactive, compact, onMove }: RadarProps) {
 
         if (!a.alive) {
           return (
-            <g key={a.id} stroke="var(--color-ink)" strokeOpacity={0.35} strokeWidth={2}>
+            <g
+              key={a.id}
+              stroke="var(--color-ink)"
+              strokeOpacity={0.35}
+              strokeWidth={2}
+            >
               <line x1={a.x - 9} y1={a.y - 9} x2={a.x + 9} y2={a.y + 9} />
               <line x1={a.x - 9} y1={a.y + 9} x2={a.x + 9} y2={a.y - 9} />
             </g>
@@ -201,7 +235,13 @@ export function Radar({ state, interactive, compact, onMove }: RadarProps) {
                 fill="var(--color-clay)"
                 opacity={reveal ? 0.14 : 0.1}
               />
-              <circle cx={a.x} cy={a.y} r={7.5} fill="var(--color-clay)" opacity={op} />
+              <circle
+                cx={a.x}
+                cy={a.y}
+                r={7.5}
+                fill="var(--color-clay)"
+                opacity={op}
+              />
               <circle
                 cx={a.x}
                 cy={a.y}
@@ -328,36 +368,65 @@ export function Radar({ state, interactive, compact, onMove }: RadarProps) {
 
       {/* drawing furniture: north arrow + scale bar */}
       {!compact && (
-        <g stroke="var(--color-ink)" strokeOpacity={0.45} fill="var(--color-ink)" fillOpacity={0.5}>
-        <line x1={WORLD - 44} y1={64} x2={WORLD - 44} y2={30} strokeWidth={1.4} />
-        <path
-          d={`M ${WORLD - 44} 22 l 6 12 l -6 -4 l -6 4 z`}
-          stroke="none"
-        />
-        <text
-          x={WORLD - 44}
-          y={82}
-          textAnchor="middle"
-          className="font-mono"
-          fontSize={13}
-          letterSpacing="0.1em"
-          stroke="none"
+        <g
+          stroke="var(--color-ink)"
+          strokeOpacity={0.45}
+          fill="var(--color-ink)"
+          fillOpacity={0.5}
         >
-          N
-        </text>
-        <line x1={34} y1={WORLD - 34} x2={134} y2={WORLD - 34} strokeWidth={1.6} />
-        <line x1={34} y1={WORLD - 40} x2={34} y2={WORLD - 28} strokeWidth={1.6} />
-        <line x1={134} y1={WORLD - 40} x2={134} y2={WORLD - 28} strokeWidth={1.6} />
-        <text
-          x={34}
-          y={WORLD - 44}
-          className="font-mono"
-          fontSize={13}
-          letterSpacing="0.12em"
-          stroke="none"
-        >
-          100 M
-        </text>
+          <line
+            x1={WORLD - 44}
+            y1={64}
+            x2={WORLD - 44}
+            y2={30}
+            strokeWidth={1.4}
+          />
+          <path
+            d={`M ${WORLD - 44} 22 l 6 12 l -6 -4 l -6 4 z`}
+            stroke="none"
+          />
+          <text
+            x={WORLD - 44}
+            y={82}
+            textAnchor="middle"
+            className="font-mono"
+            fontSize={13}
+            letterSpacing="0.1em"
+            stroke="none"
+          >
+            N
+          </text>
+          <line
+            x1={34}
+            y1={WORLD - 34}
+            x2={134}
+            y2={WORLD - 34}
+            strokeWidth={1.6}
+          />
+          <line
+            x1={34}
+            y1={WORLD - 40}
+            x2={34}
+            y2={WORLD - 28}
+            strokeWidth={1.6}
+          />
+          <line
+            x1={134}
+            y1={WORLD - 40}
+            x2={134}
+            y2={WORLD - 28}
+            strokeWidth={1.6}
+          />
+          <text
+            x={34}
+            y={WORLD - 44}
+            className="font-mono"
+            fontSize={13}
+            letterSpacing="0.12em"
+            stroke="none"
+          >
+            100 M
+          </text>
         </g>
       )}
     </svg>

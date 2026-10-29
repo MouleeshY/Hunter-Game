@@ -38,7 +38,9 @@ export function teamConfigForCount(playerCount: number): TeamConfig {
 
   // Scale the template to the actual player count, rounding Hunters down so
   // Shadows absorb the remainder.
-  const scaledHunters = Math.round((playerCount * templateHunters) / templateTotal);
+  const scaledHunters = Math.round(
+    (playerCount * templateHunters) / templateTotal,
+  );
   const scaledShadows = playerCount - scaledHunters;
 
   // Clip to keep at least one of each team.
@@ -62,9 +64,9 @@ export function assignTeams(
   // Fisher-Yates shuffle with an integer seed so the same roster always gets the
   // same assignment across clients. Hunters first, then a shuffle, then the
   // first `hunterCount` slots are Hunters.
-  const roles: Role[] = Array(hunterCount).fill("hunter").concat(
-    Array(shadowCount).fill("shadow"),
-  );
+  const roles: Role[] = Array(hunterCount)
+    .fill("hunter")
+    .concat(Array(shadowCount).fill("shadow"));
   let s = seed >>> 0;
   for (let i = roles.length - 1; i > 0; i--) {
     s = Math.imul(s ^ (s >>> 16), 0x45d9f3b);
@@ -99,7 +101,11 @@ export function randomZoneCentre(args: {
   const budget = 100;
   while (attempt < budget) {
     attempt++;
-    const centre = randomPointInCircle(organiserLat, organiserLng, maxDistanceMetres);
+    const centre = randomPointInCircle(
+      organiserLat,
+      organiserLng,
+      maxDistanceMetres,
+    );
     if (avoid == null) return centre;
     if (distanceMetres(centre, avoid) >= 30) return centre;
   }

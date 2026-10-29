@@ -18,7 +18,9 @@ export function selectProvider(): Provider {
   const raw = (process.env["DATA_PROVIDER"] ?? "convex").trim().toLowerCase();
   if (raw === "convex") return "convex";
   if (raw === "supabase") return "supabase";
-  throw new Error(`Unknown DATA_PROVIDER value: ${process.env["DATA_PROVIDER"] ?? "(unset)"}. Expected "convex" or "supabase".`);
+  throw new Error(
+    `Unknown DATA_PROVIDER value: ${process.env["DATA_PROVIDER"] ?? "(unset)"}. Expected "convex" or "supabase".`,
+  );
 }
 
 /** Repo names that the server mutations and queries use. */

@@ -33,7 +33,9 @@ export function radiusForPlayerCount(
   playerCount: number,
   config: MatchConfig,
 ): number {
-  const table = [...config.radiusTable].sort((a, b) => a.minPlayers - b.minPlayers);
+  const table = [...config.radiusTable].sort(
+    (a, b) => a.minPlayers - b.minPlayers,
+  );
   const first = table[0];
   if (!first) throw new Error("radiusTable is empty");
   if (playerCount < first.minPlayers) {
@@ -65,7 +67,10 @@ export function zoneRadiusAtMinute(args: {
   config: MatchConfig;
 }): number {
   const { minute, activePlayerCount, initialRadiusMetres, config } = args;
-  const steps = Math.max(0, Math.floor(minute / config.zoneShrinkIntervalMinutes));
+  const steps = Math.max(
+    0,
+    Math.floor(minute / config.zoneShrinkIntervalMinutes),
+  );
   let radius = initialRadiusMetres * config.zoneShrinkFactor ** steps;
 
   const perPlayer = (r: number) =>
@@ -131,7 +136,8 @@ export function outOfZoneState(args: {
   secondsOutside: number;
   config: MatchConfig;
 }): OutOfZoneState {
-  const { distanceFromCentreMetres, zoneRadiusMetres, secondsOutside, config } = args;
+  const { distanceFromCentreMetres, zoneRadiusMetres, secondsOutside, config } =
+    args;
   const boundary = zoneRadiusMetres + config.gpsToleranceMetres;
   const outside = distanceFromCentreMetres > boundary;
 
@@ -149,7 +155,9 @@ export function outOfZoneState(args: {
   const shouldEliminate = secondsOutside >= config.eliminationSecondsOutside;
   const elapsed = Math.min(secondsOutside, config.eliminationSecondsOutside);
   const drainingSeconds = Math.max(0, elapsed - config.graceSeconds);
-  const drainTicksOwed = Math.floor(drainingSeconds / config.drainIntervalSeconds);
+  const drainTicksOwed = Math.floor(
+    drainingSeconds / config.drainIntervalSeconds,
+  );
 
   if (shouldEliminate) {
     return {

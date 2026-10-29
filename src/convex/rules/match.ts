@@ -53,7 +53,10 @@ export function matchEndsAt(startedAtMs: number, config: MatchConfig): number {
 }
 
 /** End of the organiser's event window, for reference in the UI. */
-export function eventWindowEndsAt(startedAtMs: number, config: MatchConfig): number {
+export function eventWindowEndsAt(
+  startedAtMs: number,
+  config: MatchConfig,
+): number {
   return startedAtMs + config.eventWindowMinutes.max * 60_000;
 }
 

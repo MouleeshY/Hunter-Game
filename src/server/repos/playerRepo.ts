@@ -1,4 +1,9 @@
-import type { Role, PlayerMode, PlayerStatus, PlayerSnapshot } from "../../rules/types";
+import type {
+  Role,
+  PlayerMode,
+  PlayerStatus,
+  PlayerSnapshot,
+} from "../../rules/types";
 
 export interface PlayerRow {
   id: string;
@@ -23,8 +28,14 @@ export interface PlayerRow {
 }
 
 export interface PlayerRepository {
-  findByMatchAndUser(matchId: string, userId: string): Promise<PlayerRow | null>;
-  findByMatchAndToken(matchId: string, qrToken: string): Promise<PlayerRow | null>;
+  findByMatchAndUser(
+    matchId: string,
+    userId: string,
+  ): Promise<PlayerRow | null>;
+  findByMatchAndToken(
+    matchId: string,
+    qrToken: string,
+  ): Promise<PlayerRow | null>;
   listByMatch(matchId: string): Promise<PlayerRow[]>;
   /** Players still in play: active + converted Hunters (tagged with hunter mode). */
   listActiveByMatch(matchId: string): Promise<PlayerRow[]>;

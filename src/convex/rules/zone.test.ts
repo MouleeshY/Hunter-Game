@@ -30,9 +30,9 @@ describe("radius from player count", () => {
   });
 
   it("fails loudly on an empty table", () => {
-    expect(() => radiusForPlayerCount(10, { ...config, radiusTable: [] })).toThrow(
-      /empty/,
-    );
+    expect(() =>
+      radiusForPlayerCount(10, { ...config, radiusTable: [] }),
+    ).toThrow(/empty/);
   });
 });
 
@@ -40,31 +40,37 @@ describe("zone radius at a given minute", () => {
   const base = { initialRadiusMetres: 450, config };
 
   it("starts at the roster's radius", () => {
-    expect(zoneRadiusAtMinute({ ...base, minute: 0, activePlayerCount: 6 })).toBe(450);
+    expect(
+      zoneRadiusAtMinute({ ...base, minute: 0, activePlayerCount: 6 }),
+    ).toBe(450);
   });
 
   it("shrinks every 10 minutes", () => {
-    expect(zoneRadiusAtMinute({ ...base, minute: 9, activePlayerCount: 6 })).toBeCloseTo(
-      450,
-      6,
-    );
-    expect(zoneRadiusAtMinute({ ...base, minute: 10, activePlayerCount: 6 })).toBeCloseTo(
-      450 * 0.85,
-      6,
-    );
-    expect(zoneRadiusAtMinute({ ...base, minute: 25, activePlayerCount: 6 })).toBeCloseTo(
-      450 * 0.85 ** 2,
-      6,
-    );
-    expect(zoneRadiusAtMinute({ ...base, minute: 59, activePlayerCount: 6 })).toBeCloseTo(
-      450 * 0.85 ** 5,
-      6,
-    );
+    expect(
+      zoneRadiusAtMinute({ ...base, minute: 9, activePlayerCount: 6 }),
+    ).toBeCloseTo(450, 6);
+    expect(
+      zoneRadiusAtMinute({ ...base, minute: 10, activePlayerCount: 6 }),
+    ).toBeCloseTo(450 * 0.85, 6);
+    expect(
+      zoneRadiusAtMinute({ ...base, minute: 25, activePlayerCount: 6 }),
+    ).toBeCloseTo(450 * 0.85 ** 2, 6);
+    expect(
+      zoneRadiusAtMinute({ ...base, minute: 59, activePlayerCount: 6 }),
+    ).toBeCloseTo(450 * 0.85 ** 5, 6);
   });
 
   it("shrinks further while the area is large for the players left", () => {
-    const withSix = zoneRadiusAtMinute({ ...base, minute: 10, activePlayerCount: 6 });
-    const withThree = zoneRadiusAtMinute({ ...base, minute: 10, activePlayerCount: 3 });
+    const withSix = zoneRadiusAtMinute({
+      ...base,
+      minute: 10,
+      activePlayerCount: 6,
+    });
+    const withThree = zoneRadiusAtMinute({
+      ...base,
+      minute: 10,
+      activePlayerCount: 3,
+    });
     expect(withThree).toBeLessThan(withSix);
 
     // One regular step plus one extra step: 3 players in a 382 m circle still
@@ -77,14 +83,20 @@ describe("zone radius at a given minute", () => {
   });
 
   it("leaves a full roster alone at kickoff", () => {
-    expect(zoneRadiusAtMinute({ ...base, minute: 0, activePlayerCount: 6 })).toBe(450);
+    expect(
+      zoneRadiusAtMinute({ ...base, minute: 0, activePlayerCount: 6 }),
+    ).toBe(450);
   });
 
   it("never grows as the match progresses", () => {
     for (const activePlayerCount of [6, 3, 20]) {
       let previous = Number.POSITIVE_INFINITY;
       for (let minute = 0; minute <= 180; minute += 1) {
-        const radius = zoneRadiusAtMinute({ ...base, minute, activePlayerCount });
+        const radius = zoneRadiusAtMinute({
+          ...base,
+          minute,
+          activePlayerCount,
+        });
         expect(radius).toBeLessThanOrEqual(previous);
         previous = radius;
       }
@@ -136,7 +148,8 @@ describe("distance", () => {
   it("measures across longitude as well", () => {
     const a = { lat: 51.5, lng: -0.12 };
     // A degree of longitude is shorter away from the equator.
-    const metresPerDegreeLng = metresPerDegree * Math.cos((51.5 * Math.PI) / 180);
+    const metresPerDegreeLng =
+      metresPerDegree * Math.cos((51.5 * Math.PI) / 180);
     const b = { lat: 51.5, lng: -0.12 + 250 / metresPerDegreeLng };
     expect(distanceMetres(a, b)).toBeCloseTo(250, 1);
   });
@@ -147,7 +160,11 @@ describe("out-of-zone grace time", () => {
   const boundary = 200 + config.gpsToleranceMetres;
 
   it("is inside while within the radius plus the GPS tolerance", () => {
-    const state = outOfZoneState({ ...zone, distanceFromCentreMetres: boundary, secondsOutside: 999 });
+    const state = outOfZoneState({
+      ...zone,
+      distanceFromCentreMetres: boundary,
+      secondsOutside: 999,
+    });
     expect(state.status).toBe("inside");
     expect(state.outside).toBe(false);
     expect(state.secondsOutside).toBe(0);
@@ -157,39 +174,70 @@ describe("out-of-zone grace time", () => {
 
   it("counts as outside only past the tolerance buffer", () => {
     expect(
-      outOfZoneState({ ...zone, distanceFromCentreMetres: boundary + 0.1, secondsOutside: 0 })
-        .outside,
+      outOfZoneState({
+        ...zone,
+        distanceFromCentreMetres: boundary + 0.1,
+        secondsOutside: 0,
+      }).outside,
     ).toBe(true);
     expect(
-      outOfZoneState({ ...zone, distanceFromCentreMetres: boundary, secondsOutside: 0 }).outside,
+      outOfZoneState({
+        ...zone,
+        distanceFromCentreMetres: boundary,
+        secondsOutside: 0,
+      }).outside,
     ).toBe(false);
   });
 
   it("grants 60 seconds of grace after the warning", () => {
-    const at0 = outOfZoneState({ ...zone, distanceFromCentreMetres: 500, secondsOutside: 0 });
+    const at0 = outOfZoneState({
+      ...zone,
+      distanceFromCentreMetres: 500,
+      secondsOutside: 0,
+    });
     expect(at0.status).toBe("grace");
     expect(at0.graceSecondsLeft).toBe(60);
     expect(at0.drainTicksOwed).toBe(0);
 
-    const at59 = outOfZoneState({ ...zone, distanceFromCentreMetres: 500, secondsOutside: 59 });
+    const at59 = outOfZoneState({
+      ...zone,
+      distanceFromCentreMetres: 500,
+      secondsOutside: 59,
+    });
     expect(at59.status).toBe("grace");
     expect(at59.graceSecondsLeft).toBe(1);
     expect(at59.drainTicksOwed).toBe(0);
   });
 
   it("starts draining only once the grace period is spent", () => {
-    const at60 = outOfZoneState({ ...zone, distanceFromCentreMetres: 500, secondsOutside: 60 });
+    const at60 = outOfZoneState({
+      ...zone,
+      distanceFromCentreMetres: 500,
+      secondsOutside: 60,
+    });
     expect(at60.status).toBe("draining");
     expect(at60.drainTicksOwed).toBe(0);
 
-    const at70 = outOfZoneState({ ...zone, distanceFromCentreMetres: 500, secondsOutside: 70 });
+    const at70 = outOfZoneState({
+      ...zone,
+      distanceFromCentreMetres: 500,
+      secondsOutside: 70,
+    });
     expect(at70.status).toBe("draining");
     expect(at70.drainTicksOwed).toBe(1);
 
-    const at79 = outOfZoneState({ ...zone, distanceFromCentreMetres: 500, secondsOutside: 79 });
+    const at79 = outOfZoneState({
+      ...zone,
+      distanceFromCentreMetres: 500,
+      secondsOutside: 79,
+    });
     expect(at79.drainTicksOwed).toBe(1);
 
-    const at80 = outOfZoneState({ ...zone, distanceFromCentreMetres: 500, secondsOutside: 80 });
+    const at80 = outOfZoneState({
+      ...zone,
+      distanceFromCentreMetres: 500,
+      secondsOutside: 80,
+    });
     expect(at80.drainTicksOwed).toBe(2);
   });
 

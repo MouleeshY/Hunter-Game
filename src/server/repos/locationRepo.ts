@@ -14,7 +14,10 @@ export interface LocationRow {
 
 export interface LocationRepository {
   /** Latest stored position for a player in a match, or null. */
-  latestByPlayer(matchId: string, playerId: string): Promise<LocationRow | null>;
+  latestByPlayer(
+    matchId: string,
+    playerId: string,
+  ): Promise<LocationRow | null>;
   /** Latest stored position for a set of players in a match. Only columns needed
    *   by the rules engine are returned. */
   latestSnapshotByPlayers(

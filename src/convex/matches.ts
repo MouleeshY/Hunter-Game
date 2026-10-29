@@ -38,7 +38,9 @@ async function getPlayerByUser(
 ) {
   return await ctx.db
     .query("players")
-    .withIndex("by_match_user", (q) => q.eq("matchId", matchId).eq("userId", userId))
+    .withIndex("by_match_user", (q) =>
+      q.eq("matchId", matchId).eq("userId", userId),
+    )
     .first();
 }
 
@@ -49,7 +51,9 @@ async function getPlayerByToken(
 ) {
   return await ctx.db
     .query("players")
-    .withIndex("by_match_qr", (q) => q.eq("matchId", matchId).eq("qrToken", qrToken))
+    .withIndex("by_match_qr", (q) =>
+      q.eq("matchId", matchId).eq("qrToken", qrToken),
+    )
     .first();
 }
 
@@ -123,7 +127,9 @@ async function settlePlayer(
 ): Promise<number> {
   const events = await ctx.db
     .query("scoreEvents")
-    .withIndex("by_match_player", (q) => q.eq("matchId", matchId).eq("playerId", playerId))
+    .withIndex("by_match_player", (q) =>
+      q.eq("matchId", matchId).eq("playerId", playerId),
+    )
     .collect();
 
   const breakdown = { alive: 0, tags: 0, bonuses: 0, drains: 0 };
@@ -141,7 +147,9 @@ async function settlePlayer(
 
   const existing = await ctx.db
     .query("leaderboard")
-    .withIndex("by_match_player", (q) => q.eq("matchId", matchId).eq("playerId", playerId))
+    .withIndex("by_match_player", (q) =>
+      q.eq("matchId", matchId).eq("playerId", playerId),
+    )
     .first();
 
   const row = {
@@ -189,7 +197,11 @@ async function award(
  * captured Shadow who switched sides stopped scoring when they were caught.
  */
 function isEligibleHunter(player: Doc<"players">): boolean {
-  return player.role === "hunter" && player.status === "active" && player.taggedAt === undefined;
+  return (
+    player.role === "hunter" &&
+    player.status === "active" &&
+    player.taggedAt === undefined
+  );
 }
 
 /* ------------------------------------------------------------------ *
@@ -379,7 +391,9 @@ export const submitTagScan = mutation({
     /* End conditions. */
     const totalShadows = players.filter((p) => p.role === "shadow").length;
     const taggedShadows = players.filter(
-      (p) => p.role === "shadow" && (p._id === target!._id || p.taggedAt !== undefined),
+      (p) =>
+        p.role === "shadow" &&
+        (p._id === target!._id || p.taggedAt !== undefined),
     ).length;
     const end = matchEndState({
       totalShadows,
@@ -433,7 +447,11 @@ export const settleMatch = mutation({
     const match = await ctx.db.get(args.matchId);
     if (!match) throw new Error("Match not found");
     if (match.status === "ended") {
-      return { ended: true, winner: match.winner ?? null, alreadySettled: true };
+      return {
+        ended: true,
+        winner: match.winner ?? null,
+        alreadySettled: true,
+      };
     }
 
     const players = await getPlayers(ctx, args.matchId);
@@ -466,7 +484,11 @@ export const settleMatch = mutation({
     } else {
       const bonus = survivalBonus(match.config);
       for (const p of players) {
-        if (p.role === "shadow" && p.status === "active" && p.taggedAt === undefined) {
+        if (
+          p.role === "shadow" &&
+          p.status === "active" &&
+          p.taggedAt === undefined
+        ) {
           await award(ctx, {
             matchId: args.matchId,
             playerId: p._id,

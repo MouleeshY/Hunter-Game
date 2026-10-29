@@ -22,11 +22,7 @@ import type {
   LatLng,
 } from "../rules/types";
 import { RULES_CONFIG } from "../rules/config";
-import {
-  assignTeams,
-  teamConfigForCount,
-  randomZoneCentre,
-} from "./teamOps";
+import { assignTeams, teamConfigForCount, randomZoneCentre } from "./teamOps";
 import { makeId } from "../lib/id";
 
 // ---- provider dispatch ------------------------------------------------------
@@ -57,16 +53,20 @@ export function createMatch(input: {
     );
   }
 
-  if (input.matchDurationMinutes < RULES_CONFIG.eventWindowMinutes.min
-    || input.matchDurationMinutes > RULES_CONFIG.eventWindowMinutes.max) {
+  if (
+    input.matchDurationMinutes < RULES_CONFIG.eventWindowMinutes.min ||
+    input.matchDurationMinutes > RULES_CONFIG.eventWindowMinutes.max
+  ) {
     throw new RangeError(
       `matchDurationMinutes must be between ${RULES_CONFIG.eventWindowMinutes.min} and ${RULES_CONFIG.eventWindowMinutes.max}.`,
     );
   }
 
   const invigilatorCount = input.invigilators.length;
-  if (invigilatorCount < RULES_CONFIG.invigilatorCount.min
-    || invigilatorCount > RULES_CONFIG.invigilatorCount.max) {
+  if (
+    invigilatorCount < RULES_CONFIG.invigilatorCount.min ||
+    invigilatorCount > RULES_CONFIG.invigilatorCount.max
+  ) {
     throw new RangeError(
       `A match needs between ${RULES_CONFIG.invigilatorCount.min} and ${RULES_CONFIG.invigilatorCount.max} invigilators. Requested ${invigilatorCount}.`,
     );
@@ -95,8 +95,9 @@ export function createMatch(input: {
     config: configSnapshot,
     createdByUserId: input.createdByUserId,
     zoneCentre: centre,
-    initialRadiusMetres: configSnapshot.radiusTable[configSnapshot.radiusTable.length - 1]
-      .radiusMetres,
+    initialRadiusMetres:
+      configSnapshot.radiusTable[configSnapshot.radiusTable.length - 1]
+        .radiusMetres,
     eventWindowMinutesMax: configSnapshot.eventWindowMinutes.max,
     matchDurationMinutes: input.matchDurationMinutes,
   });
@@ -105,11 +106,20 @@ export function createMatch(input: {
   return {
     matchId: "",
     roomCode,
-    zone: { centreLat: centre.lat, centreLng: centre.lng, initialRadiusMetres: configSnapshot.radiusTable[configSnapshot.radiusTable.length - 1].radiusMetres },
+    zone: {
+      centreLat: centre.lat,
+      centreLng: centre.lng,
+      initialRadiusMetres:
+        configSnapshot.radiusTable[configSnapshot.radiusTable.length - 1]
+          .radiusMetres,
+    },
   };
 }
 
-function rerollCondition(reroll: boolean | undefined, previous: LatLng | null | undefined): LatLng | null {
+function rerollCondition(
+  reroll: boolean | undefined,
+  previous: LatLng | null | undefined,
+): LatLng | null {
   if (!reroll) return null;
   if (previous == null) return null;
   return previous;
@@ -135,7 +145,8 @@ export function validateRoomCode(code: string): string {
   if (code.length !== 5) return "Room code is 5 characters.";
   const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
   for (const ch of code) {
-    if (!alphabet.includes(ch)) return "Room code uses the on-screen character set.";
+    if (!alphabet.includes(ch))
+      return "Room code uses the on-screen character set.";
   }
   return "";
 }
@@ -192,7 +203,12 @@ export function makeQRToken(playerId: string): string {
   for (let i = 0; i < playerId.length; i++) {
     h = (Math.imul(h ^ playerId.charCodeAt(i), 2654435761) >>> 0) >>> 0;
   }
-  return "SH-" + h.toString(36).padStart(6, "0") + "-" + Date.now().toString(36).slice(-4);
+  return (
+    "SH-" +
+    h.toString(36).padStart(6, "0") +
+    "-" +
+    Date.now().toString(36).slice(-4)
+  );
 }
 
 // ---- team assignment -------------------------------------------------------

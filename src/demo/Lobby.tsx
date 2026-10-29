@@ -52,13 +52,17 @@ export function Lobby({ code, roster, onStart, onBack }: LobbyProps) {
             <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
               Room code
             </p>
-            <p className="mt-2 font-mono text-4xl tracking-[0.3em] sm:text-5xl">{code}</p>
+            <p className="mt-2 font-mono text-4xl tracking-[0.3em] sm:text-5xl">
+              {code}
+            </p>
           </div>
           <div className="flex items-center gap-3">
             <Button
               type="button"
               variant="outline"
-              onClick={() => navigator.clipboard?.writeText(code).catch(() => {})}
+              onClick={() =>
+                navigator.clipboard?.writeText(code).catch(() => {})
+              }
             >
               Copy code
             </Button>
@@ -98,7 +102,9 @@ export function Lobby({ code, roster, onStart, onBack }: LobbyProps) {
                             team === "hunter" ? "bg-ink" : "bg-clay"
                           }`}
                         />
-                        <span className="truncate text-[15px]">{entry.name}</span>
+                        <span className="truncate text-[15px]">
+                          {entry.name}
+                        </span>
                         {index === 0 && (
                           <span className="border border-hairline px-1.5 py-px font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
                             you
@@ -123,8 +129,8 @@ export function Lobby({ code, roster, onStart, onBack }: LobbyProps) {
 
         <div className="mt-8 flex flex-col items-start justify-between gap-4 border-t border-hairline pt-6 sm:flex-row sm:items-center">
           <p className="max-w-md text-[13px] leading-relaxed text-muted-foreground">
-            Five of these players are simulated for the demo — they run, hide and
-            tag exactly like the real thing.
+            Five of these players are simulated for the demo — they run, hide
+            and tag exactly like the real thing.
           </p>
           <Button
             type="button"

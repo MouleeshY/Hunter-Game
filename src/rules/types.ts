@@ -24,12 +24,7 @@ export type PlayerStatus =
   | "eliminated";
 
 /** Match stage that the organiser drives. */
-export type MatchStatus =
-  | "lobby"
-  | "locked"
-  | "headstart"
-  | "live"
-  | "ended";
+export type MatchStatus = "lobby" | "locked" | "headstart" | "live" | "ended";
 
 /** Public name choice on the leaderboard. */
 export type DisplayNameMode = "nickname" | "real";

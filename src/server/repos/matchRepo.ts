@@ -70,5 +70,8 @@ export interface ZoneSnapshot {
 }
 
 export function zoneSnapshotOf(row: MatchRow): ZoneSnapshot {
-  return { centre: row.zoneCentre, initialRadiusMetres: row.initialRadiusMetres };
+  return {
+    centre: row.zoneCentre,
+    initialRadiusMetres: row.initialRadiusMetres,
+  };
 }

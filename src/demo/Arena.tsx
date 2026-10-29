@@ -54,7 +54,15 @@ function Panel({
   );
 }
 
-function Meter({ label, value, total }: { label: string; value: string; total: number }) {
+function Meter({
+  label,
+  value,
+  total,
+}: {
+  label: string;
+  value: string;
+  total: number;
+}) {
   const pct = Math.max(0, Math.min(1, 1 - total));
   return (
     <div>
@@ -117,7 +125,8 @@ export function Arena({
   /* space bar tags */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.code !== "Space" || !tagRef.current || countdownRef.current > 0) return;
+      if (e.code !== "Space" || !tagRef.current || countdownRef.current > 0)
+        return;
       e.preventDefault();
       setState((s) => tryTag(s));
     };
@@ -133,7 +142,8 @@ export function Arena({
   const nextPing = Math.max(0, state.nextPingAt - state.elapsed);
   const nextZone = Math.max(0, state.zone.nextAt - state.elapsed);
   const zoneFinal = state.zone.shrinks >= 2;
-  const outside = distance(me.x, me.y, ZONE_CENTER.x, ZONE_CENTER.y) > state.zone.r;
+  const outside =
+    distance(me.x, me.y, ZONE_CENTER.x, ZONE_CENTER.y) > state.zone.r;
 
   const rosterRows = state.agents.map((a) => {
     if (a.team === "hunter") {
@@ -141,7 +151,9 @@ export function Arena({
         id: a.id,
         name: a.name,
         you: a.you,
-        detail: a.you ? "you" : `${Math.round(distance(me.x, me.y, a.x, a.y))} m away`,
+        detail: a.you
+          ? "you"
+          : `${Math.round(distance(me.x, me.y, a.x, a.y))} m away`,
         state: "live" as const,
       };
     }
@@ -157,7 +169,13 @@ export function Arena({
     const ghost = state.ghosts[a.id];
     const live = reveal || distance(me.x, me.y, a.x, a.y) <= DETECT_RANGE;
     if (!ghost) {
-      return { id: a.id, name: a.name, you: false, detail: "no signal", state: "lost" as const };
+      return {
+        id: a.id,
+        name: a.name,
+        you: false,
+        detail: "no signal",
+        state: "lost" as const,
+      };
     }
     const age = Math.floor((state.elapsed - ghost.at) / 1000);
     return {
@@ -244,10 +262,12 @@ export function Arena({
                 <p className="text-[11px] uppercase tracking-[0.28em] text-muted-foreground">
                   Match starts in
                 </p>
-                <p className="font-display text-8xl leading-none">{countdown}</p>
+                <p className="font-display text-8xl leading-none">
+                  {countdown}
+                </p>
                 <p className="mt-3 max-w-xs text-sm text-muted-foreground">
-                  You&apos;re on the Hunters. Tap the plan to move, tag a shadow when
-                  it&apos;s close.
+                  You&apos;re on the Hunters. Tap the plan to move, tag a shadow
+                  when it&apos;s close.
                 </p>
               </div>
             )}
@@ -271,7 +291,8 @@ export function Arena({
                 : "Tag out of range"}
             </Button>
             <p className="text-[13px] text-muted-foreground">
-              Tap the plan to move · <kbd className="font-mono text-ink">space</kbd> to tag
+              Tap the plan to move ·{" "}
+              <kbd className="font-mono text-ink">space</kbd> to tag
             </p>
           </div>
         </div>
@@ -317,7 +338,10 @@ export function Arena({
           <Panel title={`Players · ${state.agents.length}`}>
             <ul className="space-y-2.5">
               {rosterRows.map((row) => (
-                <li key={row.id} className="flex items-baseline justify-between gap-3">
+                <li
+                  key={row.id}
+                  className="flex items-baseline justify-between gap-3"
+                >
                   <span className="flex items-center gap-2 truncate">
                     <span
                       className={`size-1.5 shrink-0 rounded-full ${
@@ -359,7 +383,10 @@ export function Arena({
                 .slice(-5)
                 .reverse()
                 .map((entry) => (
-                  <li key={entry.id} className="flex gap-2 text-[13px] leading-snug">
+                  <li
+                    key={entry.id}
+                    className="flex gap-2 text-[13px] leading-snug"
+                  >
                     <span className="font-mono text-[11px] text-muted-foreground">
                       {formatClock(MATCH_MS - entry.at)}
                     </span>
@@ -383,4 +410,3 @@ export function Arena({
     </div>
   );
 }
-

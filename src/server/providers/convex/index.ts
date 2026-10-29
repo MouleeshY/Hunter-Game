@@ -12,7 +12,10 @@
 
 import { v } from "convex/values";
 import type { Id } from "../../../convex/_generated/dataModel";
-import { internalMutation, internalQuery } from "../../../convex/_generated/server";
+import {
+  internalMutation,
+  internalQuery,
+} from "../../../convex/_generated/server";
 import { ulid } from "ulid";
 import type {
   MatchRow,
@@ -37,10 +40,7 @@ import type {
   InvigilatorRow,
   InvigilatorRepository,
 } from "../../repos/invigilatorRepo";
-import type {
-  ScoreEventRow,
-  ScoreRepository,
-} from "../../repos/scoreRepo";
+import type { ScoreEventRow, ScoreRepository } from "../../repos/scoreRepo";
 import type {
   LeaderboardRow,
   LeaderboardRepository,
@@ -84,7 +84,10 @@ export const matchRepo: MatchRepository = {
       endsAt,
       eventWindowEndsAt,
       rosterLocked,
-      createdBy: input.createdByUserId == null ? undefined : input.createdByUserId as Id<"users">,
+      createdBy:
+        input.createdByUserId == null
+          ? undefined
+          : (input.createdByUserId as Id<"users">),
       zone: {
         centreLat: input.zoneCentre.lat,
         centreLng: input.zoneCentre.lng,
@@ -167,7 +170,9 @@ export const playerRepo: PlayerRepository = {
   listActiveByMatch: async (matchId) => {
     const rows = await readPlayersByMatch(matchId);
     const inPlay = rows.filter(
-      (r) => r.role === "hunter" || (r.role === "shadow" && (r.taggedAt != null || r.mode === "hunter")),
+      (r) =>
+        r.role === "hunter" ||
+        (r.role === "shadow" && (r.taggedAt != null || r.mode === "hunter")),
     );
     return inPlay.map(convexPlayerToRow);
   },
@@ -201,19 +206,28 @@ export const playerRepo: PlayerRepository = {
     if (patch.mode != null) next.mode = patch.mode;
     if (patch.status != null) next.status = patch.status;
     if (patch.displayName != null) next.displayName = patch.displayName;
-    if (patch.displayNameMode != null) next.displayNameMode = patch.displayNameMode;
+    if (patch.displayNameMode != null)
+      next.displayNameMode = patch.displayNameMode;
     if (patch.qrToken != null) next.qrToken = patch.qrToken;
     if (patch.points != null) next.points = patch.points;
     if (patch.joinedAt != null) next.joinedAt = patch.joinedAt;
-    if (patch.taggedAt != null) next.taggedAt = patch.taggedAt == null ? undefined : patch.taggedAt;
+    if (patch.taggedAt != null)
+      next.taggedAt = patch.taggedAt == null ? undefined : patch.taggedAt;
     if (patch.taggedById != null)
-      next.taggedById = patch.taggedById == null ? undefined : (patch.taggedById as Id<"players">);
+      next.taggedById =
+        patch.taggedById == null
+          ? undefined
+          : (patch.taggedById as Id<"players">);
     if (patch.outsideSince != null)
-      next.zoneBreach.outsideSince = patch.outsideSince == null ? undefined : patch.outsideSince;
-    if (patch.outsideSecondsTotal != null) next.zoneBreach.outsideSecondsTotal = patch.outsideSecondsTotal;
-    if (patch.chargedDrainTicks != null) next.zoneBreach.chargedDrainTicks = patch.chargedDrainTicks;
+      next.zoneBreach.outsideSince =
+        patch.outsideSince == null ? undefined : patch.outsideSince;
+    if (patch.outsideSecondsTotal != null)
+      next.zoneBreach.outsideSecondsTotal = patch.outsideSecondsTotal;
+    if (patch.chargedDrainTicks != null)
+      next.zoneBreach.chargedDrainTicks = patch.chargedDrainTicks;
     if (patch.warnedAt != null)
-      next.zoneBreach.warnedAt = patch.warnedAt == null ? undefined : patch.warnedAt;
+      next.zoneBreach.warnedAt =
+        patch.warnedAt == null ? undefined : patch.warnedAt;
     await writePlayer(next as any);
   },
   patchOutZoneState: async (id, state) => {
@@ -222,11 +236,15 @@ export const playerRepo: PlayerRepository = {
     const next: any = { ...current };
     next.zoneBreach = { ...current.zoneBreach };
     if (state.outsideSince != null)
-      next.zoneBreach.outsideSince = state.outsideSince == null ? undefined : state.outsideSince;
-    if (state.outsideSecondsTotal != null) next.zoneBreach.outsideSecondsTotal = state.outsideSecondsTotal;
-    if (state.chargedDrainTicks != null) next.zoneBreach.chargedDrainTicks = state.chargedDrainTicks;
+      next.zoneBreach.outsideSince =
+        state.outsideSince == null ? undefined : state.outsideSince;
+    if (state.outsideSecondsTotal != null)
+      next.zoneBreach.outsideSecondsTotal = state.outsideSecondsTotal;
+    if (state.chargedDrainTicks != null)
+      next.zoneBreach.chargedDrainTicks = state.chargedDrainTicks;
     if (state.warnedAt != null)
-      next.zoneBreach.warnedAt = state.warnedAt == null ? undefined : state.warnedAt;
+      next.zoneBreach.warnedAt =
+        state.warnedAt == null ? undefined : state.warnedAt;
     if (state.status != null) next.status = state.status;
     await writePlayer(next as any);
   },
@@ -248,8 +266,10 @@ function convexPlayerToRow(p: any): PlayerRow {
     taggedAt: p.taggedAt,
     taggedById: s(p.taggedById) as any,
     outsideSince: p.zoneBreach == null ? null : p.zoneBreach.outsideSince,
-    outsideSecondsTotal: p.zoneBreach == null ? 0 : p.zoneBreach.outsideSecondsTotal,
-    chargedDrainTicks: p.zoneBreach == null ? 0 : p.zoneBreach.chargedDrainTicks,
+    outsideSecondsTotal:
+      p.zoneBreach == null ? 0 : p.zoneBreach.outsideSecondsTotal,
+    chargedDrainTicks:
+      p.zoneBreach == null ? 0 : p.zoneBreach.chargedDrainTicks,
     warnedAt: p.zoneBreach == null ? null : p.zoneBreach.warnedAt,
   };
 }
@@ -268,8 +288,14 @@ let _writePlayer: (doc: any) => Promise<any>;
 
 export function bindConvexPlayerFns(
   read: (id: Id<"players">) => Promise<any | null>,
-  readByMatchAndUser: (matchId: Id<"matches">, userId: Id<"users">) => Promise<any | null>,
-  readByMatchAndToken: (matchId: Id<"matches">, token: string) => Promise<any | null>,
+  readByMatchAndUser: (
+    matchId: Id<"matches">,
+    userId: Id<"users">,
+  ) => Promise<any | null>,
+  readByMatchAndToken: (
+    matchId: Id<"matches">,
+    token: string,
+  ) => Promise<any | null>,
   listByMatch: (matchId: Id<"matches">) => Promise<any[]>,
   write: (doc: any) => Promise<any>,
 ) {
@@ -320,7 +346,12 @@ export const locationRepo: LocationRepository = {
     const map = new Map<string, Location>();
     for (const pid of playerIds) {
       const row = await readLatestLocation(matchId, pid);
-      if (row) map.set(pid, { lat: row.lat, lng: row.lng, recordedAtMs: row.recordedAt });
+      if (row)
+        map.set(pid, {
+          lat: row.lat,
+          lng: row.lng,
+          recordedAtMs: row.recordedAt,
+        });
     }
     return map;
   },
@@ -406,7 +437,9 @@ export const tagRepo: TagRepository = {
       rejectionCode: input.rejectionCode,
       distanceMetres: input.distanceMetres,
       assistedById:
-        input.assistedById == null ? undefined : (input.assistedById as Id<"players">),
+        input.assistedById == null
+          ? undefined
+          : (input.assistedById as Id<"players">),
       scoredPoints: input.scoredPoints,
       at: input.at,
     });
@@ -450,10 +483,13 @@ export const complaintRepo: ComplaintRepository = {
     if (patch.status != null) next.status = patch.status;
     if (patch.resolvedByUserId != null)
       next.resolvedByUserId =
-        patch.resolvedByUserId == null ? undefined : (patch.resolvedByUserId as Id<"users">);
+        patch.resolvedByUserId == null
+          ? undefined
+          : (patch.resolvedByUserId as Id<"users">);
     if (patch.resolvedAt != null)
       next.resolvedAt = patch.resolvedAt == null ? undefined : patch.resolvedAt;
-    if (patch.resolutionNote != null) next.resolutionNote = patch.resolutionNote;
+    if (patch.resolutionNote != null)
+      next.resolutionNote = patch.resolutionNote;
     await writeComplaint(next as any);
   },
 };

@@ -52,7 +52,8 @@ export function validateTagScan(input: {
   targetLocation: LocationSnapshot | null;
   config: MatchConfig;
 }): TagVerdict {
-  const { match, scanner, target, scannerLocation, targetLocation, config } = input;
+  const { match, scanner, target, scannerLocation, targetLocation, config } =
+    input;
 
   const timerRunning =
     match.status === "active" &&
@@ -64,15 +65,18 @@ export function validateTagScan(input: {
   if (!actsAsHunter(scanner)) {
     return {
       ok: false,
-      code: scanner.role === "hunter" ? "scanner_not_active" : "scanner_not_hunter",
+      code:
+        scanner.role === "hunter" ? "scanner_not_active" : "scanner_not_hunter",
     };
   }
 
   if (!target) return { ok: false, code: "unknown_target" };
   if (target.id === scanner.id) return { ok: false, code: "self_scan" };
   if (target.role !== "shadow") return { ok: false, code: "target_not_shadow" };
-  if (target.taggedAtMs !== null) return { ok: false, code: "target_already_tagged" };
-  if (target.status !== "active") return { ok: false, code: "target_not_in_play" };
+  if (target.taggedAtMs !== null)
+    return { ok: false, code: "target_already_tagged" };
+  if (target.status !== "active")
+    return { ok: false, code: "target_not_in_play" };
 
   if (!scannerLocation || !targetLocation) {
     return { ok: false, code: "missing_location" };

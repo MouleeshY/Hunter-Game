@@ -82,7 +82,9 @@ describe("ping schedule", () => {
 
 describe("match windows", () => {
   it("runs the match timer for the configured duration", () => {
-    expect(matchEndsAt(START, config)).toBe(START + config.matchDurationMinutes * MINUTE);
+    expect(matchEndsAt(START, config)).toBe(
+      START + config.matchDurationMinutes * MINUTE,
+    );
     expect(config.matchDurationMinutes).toBeGreaterThanOrEqual(
       config.eventWindowMinutes.min,
     );
@@ -93,7 +95,9 @@ describe("match windows", () => {
 
   it("keeps the event window inside 2–3 hours", () => {
     expect(eventWindowEndsAt(START, config)).toBe(START + 180 * MINUTE);
-    expect(withinEventWindow({ startedAtMs: START, nowMs: START, config })).toBe(true);
+    expect(
+      withinEventWindow({ startedAtMs: START, nowMs: START, config }),
+    ).toBe(true);
     expect(
       withinEventWindow({
         startedAtMs: START,

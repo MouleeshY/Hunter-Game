@@ -10,7 +10,10 @@ export interface InvigilatorRow {
 }
 
 export interface InvigilatorRepository {
-  findByMatchAndUser(matchId: string, userId: Id<"users">): Promise<InvigilatorRow | null>;
+  findByMatchAndUser(
+    matchId: string,
+    userId: Id<"users">,
+  ): Promise<InvigilatorRow | null>;
   listByMatch(matchId: string): Promise<InvigilatorRow[]>;
   create(input: {
     matchId: string;

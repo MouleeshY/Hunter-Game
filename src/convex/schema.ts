@@ -151,7 +151,11 @@ const schema = defineSchema(
       note: v.optional(v.string()),
       createdAt: v.number(),
       responseDueAt: v.number(),
-      status: v.union(v.literal("open"), v.literal("upheld"), v.literal("dismissed")),
+      status: v.union(
+        v.literal("open"),
+        v.literal("upheld"),
+        v.literal("dismissed"),
+      ),
       resolvedBy: v.optional(v.id("users")),
       resolvedAt: v.optional(v.number()),
       resolutionNote: v.optional(v.string()),

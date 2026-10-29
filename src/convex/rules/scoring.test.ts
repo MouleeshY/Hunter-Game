@@ -15,13 +15,17 @@ const config = RULES_CONFIG;
 describe("shadow alive points", () => {
   it("starts at 10 points per minute", () => {
     expect(aliveRatePerMinute(0, config)).toBe(10);
-    expect(shadowAlivePoints({ minutes: 1, zoneProgress01: 0, config })).toBe(10);
+    expect(shadowAlivePoints({ minutes: 1, zoneProgress01: 0, config })).toBe(
+      10,
+    );
   });
 
   it("rises linearly to the 25/min cap as the zone shrinks", () => {
     expect(aliveRatePerMinute(0.5, config)).toBe(17.5);
     expect(aliveRatePerMinute(1, config)).toBe(25);
-    expect(shadowAlivePoints({ minutes: 4, zoneProgress01: 1, config })).toBe(100);
+    expect(shadowAlivePoints({ minutes: 4, zoneProgress01: 1, config })).toBe(
+      100,
+    );
   });
 
   it("never exceeds the cap, whatever zone progress it is handed", () => {
@@ -30,8 +34,12 @@ describe("shadow alive points", () => {
   });
 
   it("banks nothing for zero or negative minutes", () => {
-    expect(shadowAlivePoints({ minutes: 0, zoneProgress01: 0.5, config })).toBe(0);
-    expect(shadowAlivePoints({ minutes: -5, zoneProgress01: 0.5, config })).toBe(0);
+    expect(shadowAlivePoints({ minutes: 0, zoneProgress01: 0.5, config })).toBe(
+      0,
+    );
+    expect(
+      shadowAlivePoints({ minutes: -5, zoneProgress01: 0.5, config }),
+    ).toBe(0);
   });
 });
 

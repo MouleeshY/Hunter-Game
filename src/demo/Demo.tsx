@@ -108,7 +108,9 @@ export default function Play() {
         <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-4 sm:px-6">
           <Link to="/" className="flex items-center gap-2">
             <span className="size-1.5 rounded-full bg-clay" />
-            <span className="font-display text-[15px] tracking-tight">Shadow Hunt</span>
+            <span className="font-display text-[15px] tracking-tight">
+              Shadow Hunt
+            </span>
           </Link>
           <div className="flex items-center gap-3">
             <span className="hidden font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground sm:inline">
@@ -134,8 +136,9 @@ export default function Play() {
           Open a room, or drop into one.
         </h1>
         <p className="mt-6 max-w-xl text-[15px] leading-relaxed text-muted-foreground">
-          Two teams, one dark city. Hunters chase, Shadows hide, and a radar pulse
-          gives everyone away every three minutes. You&apos;re playing as a Hunter.
+          Two teams, one dark city. Hunters chase, Shadows hide, and a radar
+          pulse gives everyone away every three minutes. You&apos;re playing as
+          a Hunter.
         </p>
 
         {/* call sign */}
@@ -160,8 +163,8 @@ export default function Play() {
           <section className="flex flex-col border border-hairline bg-card p-6">
             <h2 className="font-display text-2xl">Create a match</h2>
             <p className="mt-2 flex-1 text-[14px] leading-relaxed text-muted-foreground">
-              Spin up a room, get a code, and the crew rolls in. You start the clock
-              when everyone&apos;s ready.
+              Spin up a room, get a code, and the crew rolls in. You start the
+              clock when everyone&apos;s ready.
             </p>
             <Button
               type="button"
@@ -192,7 +195,9 @@ export default function Play() {
               type="button"
               size="lg"
               disabled={!canJoin}
-              onClick={() => openRoom(code.trim().toUpperCase(), trimmed, makeSeed())}
+              onClick={() =>
+                openRoom(code.trim().toUpperCase(), trimmed, makeSeed())
+              }
               className="mt-3 h-11 w-full uppercase tracking-[0.18em]"
               variant="outline"
             >
@@ -203,8 +208,13 @@ export default function Play() {
 
         <dl className="mt-10 grid grid-cols-2 border-t border-hairline sm:grid-cols-4">
           {RULES.map((rule) => (
-            <div key={rule.label} className="border-b border-hairline py-4 pr-4 sm:border-b-0">
-              <dt className="font-display text-2xl tabular-nums">{rule.figure}</dt>
+            <div
+              key={rule.label}
+              className="border-b border-hairline py-4 pr-4 sm:border-b-0"
+            >
+              <dt className="font-display text-2xl tabular-nums">
+                {rule.figure}
+              </dt>
               <dd className="mt-1 text-[12px] leading-snug text-muted-foreground">
                 {rule.label}
               </dd>
@@ -213,8 +223,9 @@ export default function Play() {
         </dl>
 
         <p className="mt-8 text-[12px] leading-relaxed text-muted-foreground">
-          This first version runs entirely on your device: rooms, GPS pings and the
-          other five players are simulated so you can play the whole match solo.
+          This first version runs entirely on your device: rooms, GPS pings and
+          the other five players are simulated so you can play the whole match
+          solo.
         </p>
       </main>
     </div>

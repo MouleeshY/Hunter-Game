@@ -21,7 +21,10 @@ interface ResultsProps {
 const stats = (state: GameState) => {
   const tagged = state.taggedCount;
   return [
-    { label: "Total players", value: String(state.agents.length || TOTAL_PLAYERS) },
+    {
+      label: "Total players",
+      value: String(state.agents.length || TOTAL_PLAYERS),
+    },
     { label: "Shadows tagged", value: String(tagged) },
     { label: "Shadows survived", value: String(SHADOWS - tagged) },
     { label: "Radar pulses fired", value: String(state.pulses) },
@@ -38,7 +41,13 @@ const secondary = (state: GameState) => [
   { label: "Clock speed", value: `×${TIME_SCALE}` },
 ];
 
-export function Results({ state, code, onRematch, onRoom, onLeave }: ResultsProps) {
+export function Results({
+  state,
+  code,
+  onRematch,
+  onRoom,
+  onLeave,
+}: ResultsProps) {
   const huntersWon = state.result === "hunters";
   const tagged = state.taggedCount;
   const myName = state.agents.find((a) => a.you)?.name;
@@ -94,7 +103,10 @@ export function Results({ state, code, onRematch, onRoom, onLeave }: ResultsProp
           className="mt-10 grid grid-cols-2 border-l border-t border-hairline sm:grid-cols-4"
         >
           {stats(state).map((s) => (
-            <div key={s.label} className="border-b border-r border-hairline px-4 py-6">
+            <div
+              key={s.label}
+              className="border-b border-r border-hairline px-4 py-6"
+            >
               <p className="font-display text-4xl leading-none tabular-nums sm:text-5xl">
                 {s.value}
               </p>
@@ -140,7 +152,9 @@ export function Results({ state, code, onRematch, onRoom, onLeave }: ResultsProp
                     key={a.id}
                     className="flex items-baseline justify-between border-b border-hairline/60 pb-2 text-sm"
                   >
-                    <span className={a.alive ? "text-muted-foreground" : ""}>{a.name}</span>
+                    <span className={a.alive ? "text-muted-foreground" : ""}>
+                      {a.name}
+                    </span>
                     <span className="font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">
                       {a.alive
                         ? "survived"
@@ -160,7 +174,11 @@ export function Results({ state, code, onRematch, onRoom, onLeave }: ResultsProp
           transition={{ duration: 0.5, delay: 0.34 }}
           className="mt-12 flex flex-wrap gap-3"
         >
-          <Button size="lg" onClick={onRematch} className="uppercase tracking-[0.16em]">
+          <Button
+            size="lg"
+            onClick={onRematch}
+            className="uppercase tracking-[0.16em]"
+          >
             Run it back
           </Button>
           <Button

@@ -68,7 +68,12 @@ const STATS = [
 function HeroPlan() {
   const grid = [42, 96, 158, 226, 292, 354];
   return (
-    <svg viewBox="0 0 400 400" className="h-full w-full" role="img" aria-label="Radar plan showing hunters closing on two shadows">
+    <svg
+      viewBox="0 0 400 400"
+      className="h-full w-full"
+      role="img"
+      aria-label="Radar plan showing hunters closing on two shadows"
+    >
       <rect width="400" height="400" fill="var(--color-paper)" />
 
       <g stroke="var(--color-ink)" strokeOpacity="0.14" strokeWidth="1">
@@ -78,7 +83,14 @@ function HeroPlan() {
         {grid.map((v) => (
           <line key={`h${v}`} x1="0" y1={v} x2="400" y2={v} />
         ))}
-        <line x1="0" y1="330" x2="400" y2="70" strokeOpacity="0.2" strokeWidth="2" />
+        <line
+          x1="0"
+          y1="330"
+          x2="400"
+          y2="70"
+          strokeOpacity="0.2"
+          strokeWidth="2"
+        />
       </g>
 
       <g fill="var(--color-ink)" opacity="0.05">
@@ -95,9 +107,27 @@ function HeroPlan() {
 
       {/* pulse rings */}
       <g fill="none" stroke="var(--color-ochre)">
-        <circle cx="200" cy="200" r="74" strokeOpacity="0.55" strokeWidth="1.5" />
-        <circle cx="200" cy="200" r="122" strokeOpacity="0.35" strokeWidth="1.5" />
-        <circle cx="200" cy="200" r="170" strokeOpacity="0.18" strokeWidth="1.5" />
+        <circle
+          cx="200"
+          cy="200"
+          r="74"
+          strokeOpacity="0.55"
+          strokeWidth="1.5"
+        />
+        <circle
+          cx="200"
+          cy="200"
+          r="122"
+          strokeOpacity="0.35"
+          strokeWidth="1.5"
+        />
+        <circle
+          cx="200"
+          cy="200"
+          r="170"
+          strokeOpacity="0.18"
+          strokeWidth="1.5"
+        />
       </g>
 
       {/* playable area */}
@@ -125,42 +155,121 @@ function HeroPlan() {
 
       {/* shadows */}
       <g>
-        <circle cx="118" cy="252" r="17" fill="var(--color-clay)" opacity="0.14" />
-        <circle cx="118" cy="252" r="12" fill="none" stroke="var(--color-clay)" strokeWidth="1.3" />
+        <circle
+          cx="118"
+          cy="252"
+          r="17"
+          fill="var(--color-clay)"
+          opacity="0.14"
+        />
+        <circle
+          cx="118"
+          cy="252"
+          r="12"
+          fill="none"
+          stroke="var(--color-clay)"
+          strokeWidth="1.3"
+        />
         <circle cx="118" cy="252" r="5" fill="var(--color-clay)" />
-        <text x="136" y="256" className="font-mono" fontSize="9.5" letterSpacing="1.6" fill="var(--color-clay)">
+        <text
+          x="136"
+          y="256"
+          className="font-mono"
+          fontSize="9.5"
+          letterSpacing="1.6"
+          fill="var(--color-clay)"
+        >
           WISP
         </text>
 
-        <circle cx="286" cy="132" r="17" fill="var(--color-clay)" opacity="0.14" />
-        <circle cx="286" cy="132" r="12" fill="none" stroke="var(--color-clay)" strokeWidth="1.3" />
+        <circle
+          cx="286"
+          cy="132"
+          r="17"
+          fill="var(--color-clay)"
+          opacity="0.14"
+        />
+        <circle
+          cx="286"
+          cy="132"
+          r="12"
+          fill="none"
+          stroke="var(--color-clay)"
+          strokeWidth="1.3"
+        />
         <circle cx="286" cy="132" r="5" fill="var(--color-clay)" />
-        <text x="304" y="136" className="font-mono" fontSize="9.5" letterSpacing="1.6" fill="var(--color-clay)">
+        <text
+          x="304"
+          y="136"
+          className="font-mono"
+          fontSize="9.5"
+          letterSpacing="1.6"
+          fill="var(--color-clay)"
+        >
           MOTH
         </text>
       </g>
 
       {/* hunters */}
       <g>
-        <circle cx="176" cy="168" r="8" fill="var(--color-paper)" stroke="var(--color-ink)" strokeWidth="1.6" />
+        <circle
+          cx="176"
+          cy="168"
+          r="8"
+          fill="var(--color-paper)"
+          stroke="var(--color-ink)"
+          strokeWidth="1.6"
+        />
         <circle cx="176" cy="168" r="2.6" fill="var(--color-ink)" />
 
-        <circle cx="200" cy="200" r="26" fill="var(--color-ochre)" opacity="0.16" />
-        <circle cx="200" cy="200" r="11" fill="var(--color-paper)" stroke="var(--color-ink)" strokeWidth="2.2" />
+        <circle
+          cx="200"
+          cy="200"
+          r="26"
+          fill="var(--color-ochre)"
+          opacity="0.16"
+        />
+        <circle
+          cx="200"
+          cy="200"
+          r="11"
+          fill="var(--color-paper)"
+          stroke="var(--color-ink)"
+          strokeWidth="2.2"
+        />
         <circle cx="200" cy="200" r="3.4" fill="var(--color-ink)" />
-        <text x="218" y="204" className="font-mono" fontSize="9.5" letterSpacing="1.6" fill="var(--color-ink)">
+        <text
+          x="218"
+          y="204"
+          className="font-mono"
+          fontSize="9.5"
+          letterSpacing="1.6"
+          fill="var(--color-ink)"
+        >
           YOU
         </text>
       </g>
 
       {/* north + scale */}
-      <g stroke="var(--color-ink)" strokeOpacity="0.45" fill="var(--color-ink)" fillOpacity="0.55">
+      <g
+        stroke="var(--color-ink)"
+        strokeOpacity="0.45"
+        fill="var(--color-ink)"
+        fillOpacity="0.55"
+      >
         <line x1="366" y1="46" x2="366" y2="20" strokeWidth="1.2" />
         <path d="M 366 14 l 5 10 l -5 -3.4 l -5 3.4 z" stroke="none" />
         <line x1="24" y1="376" x2="94" y2="376" strokeWidth="1.4" />
         <line x1="24" y1="371" x2="24" y2="381" strokeWidth="1.4" />
         <line x1="94" y1="371" x2="94" y2="381" strokeWidth="1.4" />
-        <text x="24" y="366" className="font-mono" fontSize="9" letterSpacing="1.6" stroke="none">
+        <text
+          x="24"
+          y="366"
+          className="font-mono"
+          fontSize="9"
+          letterSpacing="1.6"
+          stroke="none"
+        >
           100 M
         </text>
       </g>
@@ -175,7 +284,9 @@ export default function Landing() {
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
           <Link to="/" className="flex items-center gap-2">
             <span className="size-1.5 rounded-full bg-clay" />
-            <span className="font-display text-[15px] tracking-tight">Shadow Hunt</span>
+            <span className="font-display text-[15px] tracking-tight">
+              Shadow Hunt
+            </span>
           </Link>
           <nav className="flex items-center gap-6">
             <a
@@ -217,15 +328,24 @@ export default function Landing() {
           </h1>
           <p className="mt-6 max-w-lg text-[15px] leading-relaxed text-muted-foreground">
             Shadow Hunt is real-life tag with GPS. Six friends, two teams, and a
-            radar that gives everyone away every three minutes — so hiding is only
-            ever a temporary plan. The app keeps the rules, the clock and the
-            score. You just run.
+            radar that gives everyone away every three minutes — so hiding is
+            only ever a temporary plan. The app keeps the rules, the clock and
+            the score. You just run.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
-            <Button asChild size="lg" className="h-11 uppercase tracking-[0.18em]">
+            <Button
+              asChild
+              size="lg"
+              className="h-11 uppercase tracking-[0.18em]"
+            >
               <Link to="/play">Create a match</Link>
             </Button>
-            <Button asChild size="lg" variant="outline" className="h-11 uppercase tracking-[0.18em]">
+            <Button
+              asChild
+              size="lg"
+              variant="outline"
+              className="h-11 uppercase tracking-[0.18em]"
+            >
               <Link to="/play?intent=join">Join a match</Link>
             </Button>
           </div>
@@ -266,7 +386,10 @@ export default function Landing() {
       </section>
 
       {/* how it works */}
-      <section id="how" className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
+      <section
+        id="how"
+        className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24"
+      >
         <motion.p
           {...rise}
           className="text-[11px] uppercase tracking-[0.28em] text-muted-foreground"
@@ -280,7 +403,9 @@ export default function Landing() {
               {...rise}
               className="grid gap-4 border-t border-hairline py-8 sm:grid-cols-[6rem_1fr] sm:gap-8 lg:grid-cols-[6rem_18rem_1fr]"
             >
-              <span className="font-mono text-[13px] text-muted-foreground">{step.n}</span>
+              <span className="font-mono text-[13px] text-muted-foreground">
+                {step.n}
+              </span>
               <h3 className="font-display text-3xl leading-tight tracking-tight">
                 {step.title}
               </h3>
@@ -311,15 +436,22 @@ export default function Landing() {
                 className="border border-hairline bg-background p-6 sm:p-8"
               >
                 <div className="flex items-baseline justify-between">
-                  <h3 className="font-display text-3xl tracking-tight">{team.name}</h3>
+                  <h3 className="font-display text-3xl tracking-tight">
+                    {team.name}
+                  </h3>
                   <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
                     {team.count}
                   </span>
                 </div>
-                <p className="mt-3 text-[15px] italic text-ink/80">{team.line}</p>
+                <p className="mt-3 text-[15px] italic text-ink/80">
+                  {team.line}
+                </p>
                 <ul className="mt-6 space-y-3 border-t border-hairline pt-5">
                   {team.points.map((point) => (
-                    <li key={point} className="flex gap-3 text-[14px] text-muted-foreground">
+                    <li
+                      key={point}
+                      className="flex gap-3 text-[14px] text-muted-foreground"
+                    >
                       <span
                         className={`mt-1.5 size-1.5 shrink-0 rounded-full ${
                           team.name === "Hunters" ? "bg-ink" : "bg-clay"
@@ -337,7 +469,10 @@ export default function Landing() {
 
       {/* match stats */}
       <section className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
-        <motion.div {...rise} className="grid gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:items-end">
+        <motion.div
+          {...rise}
+          className="grid gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:items-end"
+        >
           <div>
             <p className="text-[11px] uppercase tracking-[0.28em] text-muted-foreground">
               At the final whistle
@@ -346,14 +481,17 @@ export default function Landing() {
               Every match ends with the numbers.
             </h2>
             <p className="mt-5 max-w-md text-[15px] leading-relaxed text-muted-foreground">
-              The app calls it, counts it and hands you the sheet: how many players
-              were out, who got caught, who made it to zero, and how many pulses it
-              took to find them.
+              The app calls it, counts it and hands you the sheet: how many
+              players were out, who got caught, who made it to zero, and how
+              many pulses it took to find them.
             </p>
           </div>
           <div className="grid grid-cols-2 border-l border-t border-hairline sm:grid-cols-4">
             {STATS.map((stat) => (
-              <div key={stat.label} className="border-b border-r border-hairline px-4 py-7">
+              <div
+                key={stat.label}
+                className="border-b border-r border-hairline px-4 py-7"
+              >
                 <p className="font-display text-4xl leading-none tabular-nums">
                   {stat.value}
                 </p>
@@ -369,14 +507,20 @@ export default function Landing() {
       {/* closing band */}
       <section className="bg-ink text-paper">
         <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
-          <motion.p {...rise} className="text-[11px] uppercase tracking-[0.28em] text-paper/60">
+          <motion.p
+            {...rise}
+            className="text-[11px] uppercase tracking-[0.28em] text-paper/60"
+          >
             11:40 pm · final tag
           </motion.p>
           <motion.h2
             {...rise}
             className="mt-4 max-w-3xl font-display text-[clamp(2.25rem,6vw,4rem)] leading-[1.02] tracking-tight"
           >
-            Hunters win. <span className="italic text-ochre">Everyone loses their mind.</span>
+            Hunters win.{" "}
+            <span className="italic text-ochre">
+              Everyone loses their mind.
+            </span>
           </motion.h2>
           <motion.div {...rise} className="mt-9 flex flex-wrap gap-3">
             <Button

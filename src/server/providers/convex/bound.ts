@@ -6,7 +6,10 @@
  * imports `bindConvexRepos` once at boot and passes the real Convex context.
  */
 
-import { internalMutation, internalQuery } from "../../../../convex/_generated/server";
+import {
+  internalMutation,
+  internalQuery,
+} from "../../../../convex/_generated/server";
 import {
   matchRepo,
   playerRepo,
@@ -87,17 +90,24 @@ export const readPlayerByMatchAndUser = internalQuery({
   handler: async (ctx, { matchId, userId }) => {
     return await ctx.db
       .query("players")
-      .withIndex("by_match_user", (q) => q.eq("matchId", matchId).eq("userId", userId))
+      .withIndex("by_match_user", (q) =>
+        q.eq("matchId", matchId).eq("userId", userId),
+      )
       .first();
   },
 });
 
 export const readPlayerByMatchAndToken = internalQuery({
-  args: { matchId: { types: { match: "matches" } }, token: { types: "string" } },
+  args: {
+    matchId: { types: { match: "matches" } },
+    token: { types: "string" },
+  },
   handler: async (ctx, { matchId, token }) => {
     return await ctx.db
       .query("players")
-      .withIndex("by_match_qr", (q) => q.eq("matchId", matchId).eq("qrToken", token))
+      .withIndex("by_match_qr", (q) =>
+        q.eq("matchId", matchId).eq("qrToken", token),
+      )
       .first();
   },
 });
@@ -160,7 +170,9 @@ export const listOpenComplaintsByMatch = internalQuery({
   handler: async (ctx, { matchId }) => {
     return await ctx.db
       .query("complaints")
-      .withIndex("by_match_status", (q) => q.eq("matchId", matchId).eq("status", "open"))
+      .withIndex("by_match_status", (q) =>
+        q.eq("matchId", matchId).eq("status", "open"),
+      )
       .collect();
   },
 });
@@ -238,7 +250,9 @@ export const listScoreEventsByPlayer = internalQuery({
   handler: async (ctx, { matchId, playerId }) => {
     return await ctx.db
       .query("scoreEvents")
-      .withIndex("by_match_player", (q) => q.eq("matchId", matchId).eq("playerId", playerId))
+      .withIndex("by_match_player", (q) =>
+        q.eq("matchId", matchId).eq("playerId", playerId),
+      )
       .collect();
   },
 });
@@ -251,7 +265,9 @@ export const readLeaderboardByMatchAndPlayer = internalQuery({
   handler: async (ctx, { matchId, playerId }) => {
     return await ctx.db
       .query("leaderboard")
-      .withIndex("by_match_player", (q) => q.eq("matchId", matchId).eq("playerId", playerId))
+      .withIndex("by_match_player", (q) =>
+        q.eq("matchId", matchId).eq("playerId", playerId),
+      )
       .first();
   },
 });

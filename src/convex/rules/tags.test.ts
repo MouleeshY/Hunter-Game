@@ -47,7 +47,10 @@ const base = {
 
 describe("tag scan — proximity", () => {
   it("accepts a scan well inside 40 m", () => {
-    const verdict = validateTagScan({ ...base, targetLocation: atMetres(39.9) });
+    const verdict = validateTagScan({
+      ...base,
+      targetLocation: atMetres(39.9),
+    });
     expect(verdict.ok).toBe(true);
     if (verdict.ok) {
       expect(verdict.scores).toBe(true);
@@ -57,7 +60,10 @@ describe("tag scan — proximity", () => {
   });
 
   it("rejects a scan just over 40 m and reports how far", () => {
-    const verdict = validateTagScan({ ...base, targetLocation: atMetres(40.1) });
+    const verdict = validateTagScan({
+      ...base,
+      targetLocation: atMetres(40.1),
+    });
     expect(verdict.ok).toBe(false);
     if (!verdict.ok) {
       expect(verdict.code).toBe("too_far");
@@ -66,7 +72,10 @@ describe("tag scan — proximity", () => {
   });
 
   it("rejects a scan across the city", () => {
-    const verdict = validateTagScan({ ...base, targetLocation: atMetres(5_000) });
+    const verdict = validateTagScan({
+      ...base,
+      targetLocation: atMetres(5_000),
+    });
     expect(verdict.ok).toBe(false);
     if (!verdict.ok) expect(verdict.code).toBe("too_far");
   });
@@ -134,7 +143,10 @@ describe("tag scan — role checks", () => {
   });
 
   it("rejects a scan of a Hunter", () => {
-    const verdict = validateTagScan({ ...base, target: hunter({ id: "hunter-2" }) });
+    const verdict = validateTagScan({
+      ...base,
+      target: hunter({ id: "hunter-2" }),
+    });
     expect(verdict.ok).toBe(false);
     if (!verdict.ok) expect(verdict.code).toBe("target_not_shadow");
   });

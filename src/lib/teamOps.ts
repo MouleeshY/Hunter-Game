@@ -3,5 +3,9 @@
  * scoring code can import it without pulling in Convex.
  */
 
-export { teamConfigForCount, assignTeams, randomZoneCentre } from "../server/teamOps";
+export {
+  teamConfigForCount,
+  assignTeams,
+  randomZoneCentre,
+} from "../server/teamOps";
 export type { TeamConfig } from "../server/teamOps";
