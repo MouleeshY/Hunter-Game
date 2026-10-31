@@ -17,6 +17,7 @@ import type { PlayerStatus, Role } from "./types";
 
 export type ComplaintRejectionCode =
   | "match_not_active"
+  | "match_paused"
   | "not_a_player"
   | "scanner_not_hunter"
   | "unknown_target"
@@ -56,6 +57,8 @@ export function complaintPolicy(input: {
   nowMs: number;
   incidentAtMs: number;
   matchActive: boolean;
+  /** True while the match is frozen: no complaint may be filed. */
+  matchPaused?: boolean;
   complainant: ComplaintPlayer | null;
   target: ComplaintPlayer | null;
   existing: ComplaintRecord[];
@@ -64,6 +67,7 @@ export function complaintPolicy(input: {
   const { nowMs, incidentAtMs, matchActive, complainant, target, config } = input;
 
   if (!matchActive) return { ok: false, code: "match_not_active" };
+  if (input.matchPaused === true) return { ok: false, code: "match_paused" };
   if (!complainant) return { ok: false, code: "not_a_player" };
   if (complainant.role !== "hunter") {
     return { ok: false, code: "scanner_not_hunter" };
@@ -108,6 +112,8 @@ export function complaintRejectionMessage(code: ComplaintRejectionCode): string 
   switch (code) {
     case "match_not_active":
       return "Complaints can only be filed while the match is running.";
+    case "match_paused":
+      return "The match is paused. Complaints open again as soon as it resumes.";
     case "not_a_player":
       return "You are not in this match.";
     case "scanner_not_hunter":

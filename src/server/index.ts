@@ -22,6 +22,7 @@ import {
   callSignError,
   displayNameError,
   statusForClock,
+  teamConfigForCount,
   type DisplayNameMode,
   type MatchConfig,
   type MatchStatus,
@@ -224,6 +225,8 @@ export interface JoinedMatch {
   matchId: string;
   roomCode: string;
   playerId: string;
+  /** True when this account was already in the room (no duplicate join). */
+  rejoined: boolean;
 }
 
 /**
@@ -238,7 +241,6 @@ export async function joinMatch(
     callSign: string;
     displayName: string;
     displayNameMode: DisplayNameMode;
-    playerMode: "spectator" | "hunter";
   },
 ): Promise<JoinedMatch> {
   const repos = getRepos();
@@ -249,6 +251,18 @@ export async function joinMatch(
   const players = await repos.players.listByMatch(ctx, match.id);
   const existing =
     players.find((player) => player.userId === input.userId) ?? null;
+
+  // Rejoin (Stage 5, task 5): someone who closes the app and comes back lands
+  // on the same player — never a second row, never a second call sign. This
+  // deliberately bypasses the roster lock, because they are already in.
+  if (existing) {
+    return {
+      matchId: match.id,
+      roomCode: match.roomCode,
+      playerId: existing.id,
+      rejoined: true,
+    };
+  }
 
   const callSign = input.callSign.trim();
   const displayName = input.displayName.trim();
@@ -261,7 +275,7 @@ export async function joinMatch(
     status: effectiveStatus(match, Date.now()),
     rosterLocked: match.rosterLocked,
     playerCount: players.length,
-    alreadyJoined: existing !== null,
+    alreadyJoined: false,
     callSignTaken: players.some(
       (player) => player.callSign.toLowerCase() === callSign.toLowerCase(),
     ),
@@ -277,7 +291,8 @@ export async function joinMatch(
     // Roles are random and only written when the match starts. Until then the
     // lobby shows nobody a team.
     role: "shadow" satisfies Role,
-    mode: input.playerMode,
+    // The organiser's setup preset: what happens if they are caught.
+    mode: match.config.defaultCaptureMode,
     status: "active",
     callSign,
     displayName,
@@ -286,7 +301,12 @@ export async function joinMatch(
     joinedAt: Date.now(),
   });
 
-  return { matchId: match.id, roomCode: match.roomCode, playerId: player.id };
+  return {
+    matchId: match.id,
+    roomCode: match.roomCode,
+    playerId: player.id,
+    rejoined: false,
+  };
 }
 
 // ---- lobby -----------------------------------------------------------------
@@ -295,6 +315,35 @@ export interface LobbyPlayer {
   id: string;
   callSign: string;
   joinedAt: number;
+  /** When they tapped "I understand" on the rules briefing. */
+  briefedAt: number | null;
+}
+
+/** What the organiser set up, shown to everyone before the head start. */
+export interface LobbySetup {
+  matchDurationMinutes: number;
+  headStartMinutes: number;
+  pingIntervalMinutes: number;
+  zoneShrinkIntervalMinutes: number;
+  tagProximityMetres: number;
+  defaultCaptureMode: PlayerMode;
+  initialRadiusMetres: number;
+  hunterCount: number;
+  shadowCount: number;
+}
+
+/** Live status board for the organiser only (Stage 5, task 8). */
+export interface LobbyStaff {
+  playerCount: number;
+  briefedCount: number;
+  pendingBriefings: number;
+  players: {
+    id: string;
+    callSign: string;
+    briefedAt: number | null;
+    /** Last position upload: null means "location off or no signal". */
+    lastUploadAtMs: number | null;
+  }[];
 }
 
 export interface LobbyInvigilator {
@@ -313,6 +362,11 @@ export interface LobbyView {
   softCapPlayers: number;
   canStart: boolean;
   startBlockedReason: string | null;
+  /** How many players still have to confirm the rules briefing. */
+  pendingBriefings: number;
+  setup: LobbySetup;
+  /** Only filled in for the organiser. */
+  staff: LobbyStaff | null;
   zone: { centreLat: number; centreLng: number; initialRadiusMetres: number };
   players: LobbyPlayer[];
   invigilators: LobbyInvigilator[];
@@ -329,6 +383,8 @@ export interface LobbyView {
     qrToken: string | null;
     /** Set once a captured Shadow has picked Spectator / Hunters / Helper. */
     captureChosenAt: number | null;
+    /** Set once this player has confirmed the rules briefing. */
+    briefedAt: number | null;
   };
   startedAt: number | null;
   endsAt: number | null;
@@ -356,11 +412,41 @@ export async function getLobby(
 
   const me = players.find((player) => player.userId === input.userId) ?? null;
   const isOrganiser = match.createdByUserId === input.userId;
+  const briefedCount = players.filter((player) => player.briefedAt !== null).length;
   const start = canStartMatch({
     status,
     playerCount: players.length,
+    briefedCount,
     config: match.config,
   });
+
+  const split =
+    players.length >= 2
+      ? teamConfigForCount(players.length, match.config)
+      : { hunterCount: 0, shadowCount: 0 };
+
+  const staff: LobbyStaff | null = isOrganiser
+    ? {
+        playerCount: players.length,
+        briefedCount,
+        pendingBriefings: start.pendingBriefings,
+        players: await Promise.all(
+          players.map(async (player) => {
+            const location = await repos.locations.latestByPlayer(
+              ctx,
+              match.id,
+              player.id,
+            );
+            return {
+              id: player.id,
+              callSign: player.callSign,
+              briefedAt: player.briefedAt,
+              lastUploadAtMs: location?.recordedAtMs ?? null,
+            };
+          }),
+        ),
+      }
+    : null;
 
   return {
     matchId: match.id,
@@ -372,6 +458,19 @@ export async function getLobby(
     softCapPlayers: match.config.softCapPlayers,
     canStart: isOrganiser && start.allowed,
     startBlockedReason: isOrganiser ? start.reason : "Only the organiser can start.",
+    pendingBriefings: start.pendingBriefings,
+    setup: {
+      matchDurationMinutes: match.config.matchDurationMinutes,
+      headStartMinutes: match.config.headStartMinutes,
+      pingIntervalMinutes: match.config.pingIntervalMinutes,
+      zoneShrinkIntervalMinutes: match.config.zoneShrinkIntervalMinutes,
+      tagProximityMetres: match.config.tagProximityMetres,
+      defaultCaptureMode: match.config.defaultCaptureMode,
+      initialRadiusMetres: match.initialRadiusMetres,
+      hunterCount: split.hunterCount,
+      shadowCount: split.shadowCount,
+    },
+    staff,
     zone: {
       centreLat: match.zoneCentre.lat,
       centreLng: match.zoneCentre.lng,
@@ -381,6 +480,7 @@ export async function getLobby(
       id: player.id,
       callSign: player.callSign,
       joinedAt: player.joinedAt,
+      briefedAt: player.briefedAt,
     })),
     invigilators: invigilators.map((invigilator) => ({
       displayName: invigilator.displayName,
@@ -397,6 +497,7 @@ export async function getLobby(
       status: me?.status ?? null,
       qrToken: me?.qrToken ?? null,
       captureChosenAt: me?.captureChosenAt ?? null,
+      briefedAt: me?.briefedAt ?? null,
     },
     startedAt: match.startedAt,
     endsAt: match.endsAt,
@@ -463,22 +564,48 @@ export interface StartedMatch {
 /**
  * Start the match: assign teams at random from the config ratio, lock the
  * roster, begin the five-minute head start and set the timer.
+ *
+ * Everyone must have confirmed the rules briefing first. `force` is the
+ * organiser's confirmed "start anyway" — the people still missing are recorded
+ * in the audit log.
  */
 export async function startMatch(
   ctx: RepoContext,
-  input: { matchId: string; userId: string; seed?: number },
+  input: { matchId: string; userId: string; seed?: number; force?: boolean },
 ): Promise<StartedMatch> {
   const repos = getRepos();
   const match = await organiserMatch(ctx, input.matchId, input.userId);
   const players = await repos.players.listByMatch(ctx, match.id);
   const status = effectiveStatus(match, Date.now());
+  const briefedCount = players.filter((player) => player.briefedAt !== null).length;
 
   const start = canStartMatch({
     status,
     playerCount: players.length,
+    briefedCount,
+    force: input.force,
     config: match.config,
   });
   if (!start.allowed) throw new Error(start.reason ?? "Cannot start yet.");
+
+  if (input.force && start.pendingBriefings > 0) {
+    const missing = players
+      .filter((player) => player.briefedAt === null)
+      .map((player) => player.callSign)
+      .join(", ");
+    await repos.audit.append(ctx, {
+      matchId: match.id,
+      at: Date.now(),
+      actorUserId: input.userId,
+      actorName: "Organiser",
+      action: "started_without_briefing",
+      targetType: "match",
+      targetId: match.id,
+      targetLabel: match.roomCode,
+      reason: "Force start confirmed by the organiser.",
+      detail: `Had not confirmed: ${missing}`,
+    });
+  }
 
   const now = Date.now();
   const seed = input.seed ?? Math.floor(randomUnit() * 2 ** 31);
@@ -517,6 +644,38 @@ export async function startMatch(
     shadows: assignments.filter((a) => a.role === "shadow").length,
     initialRadiusMetres,
   };
+}
+
+// ---- briefing -------------------------------------------------------------
+
+/**
+ * The rules briefing gate: a player taps "I understand" once, before the
+ * head start. The organiser cannot start the match until everyone has — unless
+ * they force it after being told who is missing.
+ */
+export async function confirmBriefing(
+  ctx: RepoContext,
+  input: { matchId: string; userId: string; nowMs?: number },
+): Promise<{ briefedAt: number }> {
+  const repos = getRepos();
+  const match = await repos.matches.findById(ctx, input.matchId);
+  if (!match) throw new Error("Match not found.");
+  if (match.status !== "lobby" && match.status !== "locked") {
+    throw new Error("The briefing is confirmed before the match starts.");
+  }
+
+  const player = await repos.players.findByMatchAndUser(
+    ctx,
+    match.id,
+    input.userId,
+  );
+  if (!player) throw new Error("You are not in this match.");
+
+  const briefedAt = player.briefedAt ?? input.nowMs ?? Date.now();
+  if (player.briefedAt === null) {
+    await repos.players.patch(ctx, player.id, { briefedAt });
+  }
+  return { briefedAt };
 }
 
 // ---- invigilators ----------------------------------------------------------
@@ -594,6 +753,7 @@ export {
   type EndResult,
 } from "./matchEnd";
 export { fileComplaint } from "./complaints";
+export type { ConsoleHelpAlert, ConsoleView } from "./console";
 export {
   getConsoleView,
   dismissComplaint,
@@ -604,5 +764,7 @@ export {
   pauseMatch,
   resumeMatch,
   endMatchEarly,
+  abortMatch,
   statusAfterCapture,
 } from "./console";
+export { recordEvent, raiseHelpAlert } from "./events";

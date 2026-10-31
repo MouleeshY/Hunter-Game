@@ -163,10 +163,22 @@ export interface ConsoleComplaint {
   shadowLng: number | null;
 }
 
+/** A player's "I need help" alert, with the position it was raised from. */
+export interface ConsoleHelpAlert {
+  id: string;
+  at: number;
+  ageMs: number;
+  playerId: string;
+  callSign: string;
+  lat: number | null;
+  lng: number | null;
+}
+
 export interface ConsoleView {
   matchId: string;
   roomCode: string;
   status: MatchStatus;
+  endReason: MatchRow["endReason"];
   serverNowMs: number;
   paused: boolean;
   pauseReason: string | null;
@@ -183,6 +195,7 @@ export interface ConsoleView {
   };
   players: ConsolePlayer[];
   complaints: ConsoleComplaint[];
+  helpAlerts: ConsoleHelpAlert[];
   audit: AuditRow[];
   invigilatorName: string;
 }
@@ -203,10 +216,11 @@ export async function getConsoleView(
     input.userId,
   );
 
-  const [players, complaints, audit] = await Promise.all([
+  const [players, complaints, audit, events] = await Promise.all([
     repos.players.listByMatch(ctx, match.id),
     repos.complaints.listByMatch(ctx, match.id),
     repos.audit.listByMatch(ctx, match.id),
+    repos.events.listByMatch(ctx, match.id),
   ]);
 
   const startedAt = match.startedAt ?? now;
@@ -303,10 +317,27 @@ export async function getConsoleView(
     pausedTotalMs: match.pausedTotalMs,
   });
 
+  const helpAlerts: ConsoleHelpAlert[] = events
+    .filter((event) => event.kind === "help")
+    .map((event) => ({
+      id: event.id,
+      at: event.at,
+      ageMs: Math.max(0, now - event.at),
+      playerId: event.playerId ?? "",
+      callSign:
+        event.detail ??
+        playerById.get(event.playerId ?? "")?.callSign ??
+        "Unknown",
+      lat: event.lat,
+      lng: event.lng,
+    }))
+    .sort((a, b) => b.at - a.at);
+
   return {
     matchId: match.id,
     roomCode: match.roomCode,
     status,
+    endReason: match.endReason,
     serverNowMs: frozenNow,
     paused: match.pausedAt !== null,
     pauseReason: match.pauseReason,
@@ -329,6 +360,7 @@ export async function getConsoleView(
     },
     players: consolePlayers,
     complaints: consoleComplaints,
+    helpAlerts,
     audit,
     invigilatorName: invigilator.displayName,
   };
@@ -719,6 +751,61 @@ export async function endMatchEarly(
   });
 
   return { winner: settled.winner };
+}
+
+/**
+ * "Abort match" (Stage 5, decision 2): organiser or invigilator, reason
+ * required. The match ends with **no winner and no bonuses** — the points
+ * already earned stay exactly where they are — and the record reads
+ * "aborted".
+ */
+export async function abortMatch(
+  ctx: RepoContext,
+  input: { matchId: string; userId: string; reason: string },
+): Promise<{ aborted: boolean; endedAt: number }> {
+  const repos = getRepos();
+  const { actor, match } = await requireFreezeRights(
+    ctx,
+    input.matchId,
+    input.userId,
+  );
+  const now = Date.now();
+
+  const reason = input.reason.trim();
+  if (!reason) throw new Error("Give a reason for aborting the match.");
+  if (match.status === "ended") {
+    throw new Error("That match has already ended.");
+  }
+  // No endMatch(): an abort never pays a bonus and never names a winner.
+  await repos.matches.patch(ctx, match.id, {
+    status: "ended",
+    winner: null,
+    endReason: "aborted",
+    endedAt: now,
+    pausedAt: null,
+    pauseReason: null,
+  });
+
+  await repos.events.append(ctx, {
+    matchId: match.id,
+    at: now,
+    kind: "phase",
+    detail: `Match aborted — ${reason}`,
+  });
+  await logAction(ctx, {
+    match,
+    actorUserId: input.userId,
+    actorName: actor,
+    action: "match_aborted",
+    targetType: "match",
+    targetId: match.id,
+    targetLabel: match.roomCode,
+    reason,
+    detail: "No winner, no bonuses; points earned so far are kept.",
+    at: now,
+  });
+
+  return { aborted: true, endedAt: now };
 }
 
 /** Eligible recipients of the 150-point team bonus, for the console. */

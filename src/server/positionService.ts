@@ -12,7 +12,6 @@ import {
   nextShrinkAtMs,
   outOfZoneState,
   pingWindow,
-  spectatorDelayMs,
   statusForClock,
   uploadSchedule,
   visibilityFor,
@@ -20,6 +19,7 @@ import {
   type MatchConfig,
   type MatchStatus,
   type OutOfZoneStatus,
+  type PlayerMode,
   type PlayerStatus,
   type Role,
   type Viewer,
@@ -155,7 +155,10 @@ export async function uploadPosition(
   const schedule = uploadSchedule({
     status,
     lastUploadAtMs: last?.recordedAtMs ?? null,
-    nowMs: clock,
+    // Stage 5, decision 3: uploads keep running while paused (they rate-limit
+    // against the real clock), but the zone, the drain and the ping all run on
+    // the frozen one.
+    nowMs: match.pausedAt !== null ? now : clock,
     config: match.config,
   });
   if (!schedule.allowed) {
@@ -350,6 +353,8 @@ export interface MapView {
   matchId: string;
   roomCode: string;
   status: MatchStatus;
+  /** How the match finished, once it has. */
+  endReason: MatchRow["endReason"];
   startedAt: number | null;
   endsAt: number | null;
   headStartEndsAt: number | null;
@@ -372,15 +377,41 @@ export interface MapView {
     index: number;
     ghostFadeSeconds: number;
   };
+  /** What the HUD needs, without any coordinates. */
+  summary: {
+    activeShadows: number;
+    totalShadows: number;
+    activeHunters: number;
+    tags: number;
+    stillIn: { playerId: string; callSign: string; role: Role }[];
+  };
+  /** Only filled in for the organiser or an invigilator of the match. */
+  staff: MapStaff | null;
   me: {
     playerId: string | null;
     callSign: string | null;
     role: Role | null;
+    mode: PlayerMode | null;
     status: PlayerStatus | null;
+    points: number;
     isInvigilator: boolean;
+    isOrganiser: boolean;
     breach: ZoneBreach | null;
   };
   markers: MapMarker[];
+}
+
+/** Live status board for staff watching the match (Stage 5, task 8). */
+export interface MapStaff {
+  playerCount: number;
+  briefedCount: number;
+  players: {
+    playerId: string;
+    callSign: string;
+    briefedAt: number | null;
+    /** Last position upload; null means "location off or out of signal". */
+    lastUploadAtMs: number | null;
+  }[];
 }
 
 async function locationFor(
@@ -388,12 +419,9 @@ async function locationFor(
   matchId: string,
   playerId: string,
   mode: VisibilityMode,
-  args: { nowMs: number; lastPingAtMs: number | null; delayMs: number },
+  args: { lastPingAtMs: number | null },
 ): Promise<LocationRow | null> {
   const repos = getRepos();
-  if (mode === "live") {
-    return await repos.locations.latestByPlayer(ctx, matchId, playerId);
-  }
   if (mode === "ping") {
     if (args.lastPingAtMs === null) return null;
     return await repos.locations.latestByPlayerBefore(
@@ -403,12 +431,7 @@ async function locationFor(
       args.lastPingAtMs,
     );
   }
-  return await repos.locations.latestByPlayerBefore(
-    ctx,
-    matchId,
-    playerId,
-    args.nowMs - args.delayMs,
-  );
+  return await repos.locations.latestByPlayer(ctx, matchId, playerId);
 }
 
 /**
@@ -428,15 +451,17 @@ export async function getMapView(
 
   const clock = clockOf(match, now);
 
-  const [players, invigilator, meAsPlayer] = await Promise.all([
+  const [players, invigilator, meAsPlayer, tags] = await Promise.all([
     repos.players.listByMatch(ctx, match.id),
     repos.invigilators.findByMatchAndUser(ctx, match.id, input.userId),
     repos.players.findByMatchAndUser(ctx, match.id, input.userId),
+    repos.tags.listByMatch(ctx, match.id),
   ]);
 
   if (invigilator === null && meAsPlayer === null) {
     throw new Error("You are not in this match.");
   }
+  const isOrganiser = match.createdByUserId === input.userId;
 
   const viewer: Viewer =
     invigilator !== null
@@ -455,7 +480,6 @@ export async function getMapView(
     config: match.config,
   });
   const lastPingAtMs = match.lastPingAt ?? window.lastPingAtMs;
-  const delayMs = spectatorDelayMs(match.config);
 
   const markers: MapMarker[] = [];
   for (const candidate of players) {
@@ -467,9 +491,7 @@ export async function getMapView(
     if (mode === null) continue;
 
     const location = await locationFor(ctx, match.id, candidate.id, mode, {
-      nowMs: clock,
       lastPingAtMs,
-      delayMs,
     });
     if (!location) continue;
     if (location.suspicious) continue;
@@ -519,10 +541,54 @@ export async function getMapView(
           };
   }
 
+  const summary = {
+    activeShadows: players.filter(
+      (player) =>
+        player.role === "shadow" &&
+        player.status === "active" &&
+        player.taggedAt === null,
+    ).length,
+    totalShadows: players.filter((player) => player.role === "shadow").length,
+    activeHunters: players.filter(
+      (player) => player.role === "hunter" && player.status === "active",
+    ).length,
+    tags: tags.filter((tag) => tag.status === "accepted").length,
+    stillIn: players
+      .filter((player) => player.status === "active")
+      .map((player) => ({
+        playerId: player.id,
+        callSign: player.callSign,
+        role: player.role,
+      })),
+  };
+
+  let staff: MapStaff | null = null;
+  if (invigilator !== null || isOrganiser) {
+    const briefedCount = players.filter(
+      (player) => player.briefedAt !== null,
+    ).length;
+    const rows: MapStaff["players"] = [];
+    for (const player of players) {
+      const location = await repos.locations.latestByPlayer(
+        ctx,
+        match.id,
+        player.id,
+      );
+      rows.push({
+        playerId: player.id,
+        callSign: player.callSign,
+        briefedAt: player.briefedAt,
+        lastUploadAtMs: location?.recordedAtMs ?? null,
+      });
+    }
+    staff = { playerCount: players.length, briefedCount, players: rows };
+  }
+
   return {
     matchId: match.id,
     roomCode: match.roomCode,
     status,
+    endReason: match.endReason,
     startedAt: match.startedAt,
     endsAt: match.endsAt,
     headStartEndsAt:
@@ -553,10 +619,15 @@ export async function getMapView(
       playerId: meAsPlayer?.id ?? null,
       callSign: meAsPlayer?.callSign ?? null,
       role: meAsPlayer?.role ?? null,
+      mode: meAsPlayer?.mode ?? null,
       status: meAsPlayer?.status ?? null,
+      points: meAsPlayer?.points ?? 0,
       isInvigilator: invigilator !== null,
+      isOrganiser,
       breach,
     },
+    summary,
+    staff,
     markers,
   };
 }

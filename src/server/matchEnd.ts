@@ -5,7 +5,7 @@
  * Winners come from the pure `matchEndState` rule in `src/rules`. Everything
  * here writes through the repositories.
  */
-import { matchEndState, survivalBonus, allTaggedBonus } from "../rules";
+import { matchEndState, survivalBonus, allTaggedBonus, type MatchEndReason } from "../rules";
 import { getRepos } from "./providers";
 import { award } from "./settlement";
 import type { PlayerRow, RepoContext } from "./repos";
@@ -75,10 +75,13 @@ export async function endMatch(
   });
 
   let winner: "hunters" | "shadows";
+  let endReason: MatchEndReason;
   if (detected.ended) {
     winner = detected.winner;
+    endReason = detected.reason;
   } else if (input.force) {
     winner = activeShadows(players).length > 0 ? "shadows" : "hunters";
+    endReason = "staff_end";
   } else {
     return { ended: false, winner: null, alreadySettled: false };
   }
@@ -116,6 +119,7 @@ export async function endMatch(
   await repos.matches.patch(ctx, match.id, {
     status: "ended",
     winner,
+    endReason,
     endedAt: now,
   });
 

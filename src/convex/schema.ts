@@ -4,6 +4,8 @@ import { Infer, v } from "convex/values";
 import {
   displayNameModeValidator,
   matchConfigValidator,
+  matchEndReasonValidator,
+  matchEventKindValidator,
   matchStatusValidator,
   playerModeValidator,
   playerStatusValidator,
@@ -91,6 +93,11 @@ const schema = defineSchema(
       aliveUpToMinute: v.optional(v.number()),
       winner: v.optional(v.union(v.literal("hunters"), v.literal("shadows"))),
       endedAt: v.optional(v.number()),
+      /**
+       * How the match finished: a natural end, the organiser's "End match", or
+       * an abort (no winner, no bonuses). `aborted` is what the record shows.
+       */
+      endReason: v.optional(matchEndReasonValidator),
     })
       .index("by_status", ["status"])
       .index("by_room_code", ["roomCode"]),
@@ -126,6 +133,8 @@ const schema = defineSchema(
       taggedById: v.optional(v.id("players")),
       /** Set once the tagged player has picked Spectator / Hunters / Helper. */
       captureChosenAt: v.optional(v.number()),
+      /** Set when the player tapped "I understand" on the rules briefing. */
+      briefedAt: v.optional(v.number()),
       zoneBreach: v.object({
         outsideSince: v.optional(v.number()),
         outsideSecondsTotal: v.optional(v.number()),
@@ -282,6 +291,30 @@ const schema = defineSchema(
       reason: v.optional(v.string()),
       detail: v.optional(v.string()),
     }).index("by_match_time", ["matchId", "at"]),
+
+    /* ---------------------------------------------------------------- *
+     * Match events — append-only live feed (Stage 5). Tags, eliminations,
+     * shrinks, pauses and help alerts. Never carries a position: the one
+     * exception is `helpAlert`, whose coordinates are only ever returned to
+     * an invigilator of the match.
+     * `refId` deduplicates scheduled events, exactly like the score ledger.
+     * ---------------------------------------------------------------- */
+    matchEvents: defineTable({
+      matchId: v.id("matches"),
+      at: v.number(),
+      kind: matchEventKindValidator,
+      /** Player the event is about (the tagged Shadow, the eliminated). */
+      playerId: v.optional(v.id("players")),
+      /** Who did it — hidden from the feed until the match has ended. */
+      actorId: v.optional(v.id("players")),
+      detail: v.optional(v.string()),
+      refId: v.optional(v.string()),
+      /** Only ever shown to invigilators. */
+      lat: v.optional(v.number()),
+      lng: v.optional(v.number()),
+    })
+      .index("by_match_time", ["matchId", "at"])
+      .index("by_match_ref", ["matchId", "refId"]),
   },
   {
     schemaValidation: false,

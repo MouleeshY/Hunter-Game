@@ -9,6 +9,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import {
   claimInvite,
+  confirmBriefing,
   createMatch,
   getLobby,
   joinMatch,
@@ -18,6 +19,7 @@ import {
   startMatch,
 } from "../server/index";
 import {
+  abortMatch,
   endMatchEarly,
   pauseMatch,
   resumeMatch,
@@ -67,9 +69,6 @@ export const joinRoom = mutation({
     callSign: v.string(),
     displayName: v.string(),
     displayNameMode: v.union(v.literal("nickname"), v.literal("real")),
-    playerMode: v.optional(
-      v.union(v.literal("spectator"), v.literal("hunter")),
-    ),
   },
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx);
@@ -79,8 +78,16 @@ export const joinRoom = mutation({
       callSign: args.callSign,
       displayName: args.displayName,
       displayNameMode: args.displayNameMode,
-      playerMode: args.playerMode ?? "spectator",
     });
+  },
+});
+
+/** The rules briefing: "I understand", recorded once per player. */
+export const acknowledgeBriefing = mutation({
+  args: { matchId: v.id("matches") },
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    return await confirmBriefing(ctx, { matchId: args.matchId, userId });
   },
 });
 
@@ -105,10 +112,18 @@ export const lockRoster = mutation({
 });
 
 export const startRoom = mutation({
-  args: { matchId: v.id("matches") },
+  args: {
+    matchId: v.id("matches"),
+    /** The organiser's confirmed "start anyway" when briefings are missing. */
+    force: v.optional(v.boolean()),
+  },
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx);
-    return await startMatch(ctx, { matchId: args.matchId, userId });
+    return await startMatch(ctx, {
+      matchId: args.matchId,
+      userId,
+      force: args.force,
+    });
   },
 });
 
@@ -146,6 +161,22 @@ export const resumeRoom = mutation({
       matchId: args.matchId,
       userId,
       reason: args.reason ?? "Resumed by the organiser.",
+    });
+  },
+});
+
+/**
+ * "Abort match": no winner, no bonuses, points kept so far. Organiser or
+ * invigilator, reason required.
+ */
+export const abortRoom = mutation({
+  args: { matchId: v.id("matches"), reason: v.string() },
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    return await abortMatch(ctx, {
+      matchId: args.matchId,
+      userId,
+      reason: args.reason,
     });
   },
 });

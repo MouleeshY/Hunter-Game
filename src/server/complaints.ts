@@ -56,6 +56,7 @@ export async function fileComplaint(
     nowMs: now,
     incidentAtMs: incidentAt,
     matchActive: status === "live",
+    matchPaused: match.pausedAt !== null,
     complainant: complainant && {
       id: complainant.id,
       role: complainant.role,

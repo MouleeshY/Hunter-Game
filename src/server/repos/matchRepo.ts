@@ -1,12 +1,13 @@
 import type {
   MatchConfig,
+  MatchEndReason,
   MatchStatus,
   LatLng,
   MatchSnapshot,
 } from "../../rules/types";
 import type { RepoContext } from "./context";
 
-export type { MatchStatus, MatchConfig, LatLng };
+export type { MatchEndReason, MatchStatus, MatchConfig, LatLng };
 
 /** One match. Kept deliberately fat so the rules engine only needs this shape,
  *   not the underlying database document. */
@@ -37,6 +38,8 @@ export interface MatchRow {
   initialRadiusMetres: number;
   winner: "hunters" | "shadows" | null;
   endedAt: number | null;
+  /** How it finished: natural end, the organiser's "End match", or abort. */
+  endReason: MatchEndReason | null;
 }
 
 export interface MatchRepository {
@@ -75,6 +78,7 @@ export interface MatchRepository {
       pauseReason?: string | null;
       aliveUpToMinute?: number;
       winner?: "hunters" | "shadows" | null;
+      endReason?: MatchEndReason | null;
       endedAt?: number | null;
       rosterLocked?: boolean;
       zoneCentre?: LatLng;

@@ -33,6 +33,11 @@ import type {
   LeaderboardRow,
 } from "../../repos/leaderboardRepo";
 import type { AuditRepository, AuditRow } from "../../repos/auditRepo";
+import type {
+  MatchEventRepository,
+  MatchEventRow,
+  MatchEventKind,
+} from "../../repos/eventRepo";
 
 // ---- opaque context --------------------------------------------------------
 
@@ -76,6 +81,7 @@ function matchRow(m: Doc<"matches">): MatchRow {
     initialRadiusMetres: m.zone.initialRadiusMetres,
     winner: m.winner ?? null,
     endedAt: m.endedAt ?? null,
+    endReason: m.endReason ?? null,
   };
 }
 
@@ -96,6 +102,7 @@ function playerRow(p: Doc<"players">): PlayerRow {
     taggedAt: p.taggedAt ?? null,
     taggedById: p.taggedById ?? null,
     captureChosenAt: p.captureChosenAt ?? null,
+    briefedAt: p.briefedAt ?? null,
     outsideSince: p.zoneBreach.outsideSince ?? null,
     outsideSecondsTotal: p.zoneBreach.outsideSecondsTotal ?? 0,
     chargedDrainTicks: p.zoneBreach.chargedDrainTicks,
@@ -257,6 +264,7 @@ export const matchRepo: MatchRepository = {
       aliveUpToMinute?: number;
       winner?: "hunters" | "shadows";
       endedAt?: number;
+      endReason?: NonNullable<MatchRow["endReason"]>;
       rosterLocked?: boolean;
       zone?: { centreLat: number; centreLng: number; initialRadiusMetres: number };
     } = {};
@@ -276,6 +284,9 @@ export const matchRepo: MatchRepository = {
     }
     if (patch.endedAt !== undefined && patch.endedAt !== null) {
       next.endedAt = patch.endedAt;
+    }
+    if (patch.endReason !== undefined) {
+      next.endReason = patch.endReason ?? undefined;
     }
     if (patch.rosterLocked !== undefined) {
       next.rosterLocked = patch.rosterLocked;
@@ -375,6 +386,7 @@ export const playerRepo: PlayerRepository = {
       taggedAt?: number;
       taggedById?: Id<"players">;
       captureChosenAt?: number;
+      briefedAt?: number;
     } = {};
 
     if (patch.role !== undefined) next.role = patch.role;
@@ -389,6 +401,9 @@ export const playerRepo: PlayerRepository = {
     }
     if (patch.captureChosenAt !== undefined) {
       next.captureChosenAt = patch.captureChosenAt ?? undefined;
+    }
+    if (patch.briefedAt !== undefined) {
+      next.briefedAt = patch.briefedAt ?? undefined;
     }
 
     await db.patch(id as Id<"players">, next);
@@ -818,6 +833,65 @@ export const auditRepo: AuditRepository = {
   },
 };
 
+/**
+ * MatchEventRepository on Convex. Append-only: rows are inserted and never
+ * patched or deleted.
+ */
+function eventRow(e: Doc<"matchEvents">): MatchEventRow {
+  return {
+    id: e._id,
+    matchId: e.matchId,
+    at: e.at,
+    kind: e.kind,
+    playerId: e.playerId ?? null,
+    actorId: e.actorId ?? null,
+    detail: e.detail ?? null,
+    refId: e.refId ?? null,
+    lat: e.lat ?? null,
+    lng: e.lng ?? null,
+  };
+}
+
+export const eventRepo: MatchEventRepository = {
+  append: async (ctx, input) => {
+    return await writer(ctx).insert("matchEvents", {
+      matchId: input.matchId as Id<"matches">,
+      at: input.at,
+      kind: input.kind as MatchEventKind,
+      playerId: input.playerId
+        ? (input.playerId as Id<"players">)
+        : undefined,
+      actorId: input.actorId ? (input.actorId as Id<"players">) : undefined,
+      detail: input.detail ?? undefined,
+      refId: input.refId ?? undefined,
+      lat: input.lat ?? undefined,
+      lng: input.lng ?? undefined,
+    });
+  },
+
+  listByMatch: async (ctx, matchId) => {
+    const docs = await reader(ctx)
+      .query("matchEvents")
+      .withIndex("by_match_time", (q) =>
+        q.eq("matchId", matchId as Id<"matches">),
+      )
+      .collect();
+    return docs.map(eventRow);
+  },
+
+  existsByRef: async (ctx, matchId, refId) => {
+    const doc = await reader(ctx)
+      .query("matchEvents")
+      .withIndex("by_match_ref", (q) =>
+        q
+          .eq("matchId", matchId as Id<"matches">)
+          .eq("refId", refId),
+      )
+      .first();
+    return doc !== null;
+  },
+};
+
 /** Every repository the server uses, implemented on Convex. */
 export const repos = {
   matches: matchRepo,
@@ -829,6 +903,7 @@ export const repos = {
   scores: scoreRepo,
   leaderboard: leaderboardRepo,
   audit: auditRepo,
+  events: eventRepo,
 } as const;
 
 export type Repos = typeof repos;

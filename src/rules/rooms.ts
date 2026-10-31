@@ -185,29 +185,60 @@ export function nextMatchStatus(
   return null;
 }
 
-/** The organiser may start once the minimum is in, from lobby or locked. */
+/**
+ * The organiser may start once the minimum is in, from lobby or locked.
+ *
+ * Every player must also have confirmed the rules briefing first (Stage 5,
+ * task 1) — unless the organiser passes `force`, which is the confirmed
+ * "start anyway" button after they have been told who is missing.
+ */
 export function canStartMatch(input: {
   status: MatchStatus;
   playerCount: number;
   config: MatchConfig;
-}): { allowed: boolean; reason: string | null } {
+  /** Players who have tapped "I understand". Omit to skip the gate. */
+  briefedCount?: number;
+  /** The organiser confirmed they want to start with people missing. */
+  force?: boolean;
+}): { allowed: boolean; reason: string | null; pendingBriefings: number } {
   const { status, playerCount, config } = input;
+  const pendingBriefings =
+    input.briefedCount === undefined
+      ? 0
+      : Math.max(0, playerCount - input.briefedCount);
+
   if (status !== "lobby" && status !== "locked") {
-    return { allowed: false, reason: "This match has already started." };
+    return {
+      allowed: false,
+      reason: "This match has already started.",
+      pendingBriefings,
+    };
   }
   if (playerCount < config.minPlayers) {
     return {
       allowed: false,
       reason: `At least ${config.minPlayers} players are needed to start.`,
+      pendingBriefings,
     };
   }
   if (playerCount > config.softCapPlayers) {
     return {
       allowed: false,
       reason: `A room can hold at most ${config.softCapPlayers} players.`,
+      pendingBriefings,
     };
   }
-  return { allowed: true, reason: null };
+  if (pendingBriefings > 0 && input.force !== true) {
+    return {
+      allowed: false,
+      reason:
+        pendingBriefings === 1
+          ? "1 player has not confirmed the rules yet."
+          : `${pendingBriefings} players have not confirmed the rules yet.`,
+      pendingBriefings,
+    };
+  }
+  return { allowed: true, reason: null, pendingBriefings: 0 };
 }
 
 /**

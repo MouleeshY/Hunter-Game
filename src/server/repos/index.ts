@@ -20,3 +20,4 @@ export * from "./invigilatorRepo";
 export * from "./scoreRepo";
 export * from "./leaderboardRepo";
 export * from "./auditRepo";
+export * from "./eventRepo";

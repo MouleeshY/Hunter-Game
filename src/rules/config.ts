@@ -43,8 +43,15 @@ export interface MatchConfig {
   maxSpeedMetresPerSecond: number;
   /** [TUNED] How long a Hunter keeps seeing a ping ghost before it fades. */
   pingGhostFadeSeconds: number;
-  /** [RULE] Spectators see everyone 60 seconds behind. */
+  /**
+   * [RULE] Spectators used to see everyone 60 seconds behind. Since Stage 5
+   * they see exactly what a Hunter sees (Hunters live, Shadows at the ping), so
+   * nothing reads this any more — it stays in the snapshot because the config
+   * shape is stored on every match.
+   */
   spectatorDelaySeconds: number;
+  /** [TUNED] Warn every player this many seconds before the zone shrinks. */
+  shrinkWarningSeconds: number;
   /** [TUNED] Position history is deleted this long after a match ends. */
   positionRetentionHours: number;
 
@@ -122,6 +129,12 @@ export interface MatchConfig {
   eliminatedTurnsInto: PlayerMode;
   /** [RULE] What a removed Shadow gets. Rules say "no survival bonus". */
   removedSurvives: boolean;
+  /**
+   * [TUNED] What every player is offered as their default after they are
+   * caught, set by the organiser at setup. The player still picks for
+   * themselves at the moment of capture; this is only the default.
+   */
+  defaultCaptureMode: PlayerMode;
 
   // ---- Scoring -------------------------------------------------------------
 
@@ -152,6 +165,7 @@ export const RULES_CONFIG: MatchConfig = {
   maxSpeedMetresPerSecond: 15,
   pingGhostFadeSeconds: 45,
   spectatorDelaySeconds: 60,
+  shrinkWarningSeconds: 30,
   positionRetentionHours: 24,
 
   zoneShrinkIntervalMinutes: 10,
@@ -190,6 +204,7 @@ export const RULES_CONFIG: MatchConfig = {
   centrePickDistanceMetres: 500,
   eliminatedTurnsInto: "spectator",
   removedSurvives: false,
+  defaultCaptureMode: "spectator",
 
   shadowAlivePointsPerMinute: 10,
   shadowAlivePointsPerMinuteCap: 25,

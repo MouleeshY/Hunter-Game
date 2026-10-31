@@ -27,6 +27,7 @@ import type { ScoreEventRow } from "./repos/scoreRepo";
 import type { ComplaintRow } from "./repos/complaintRepo";
 import type { TagRow } from "./repos/tagRepo";
 import type { AuditRow } from "./repos/auditRepo";
+import type { MatchEventRow } from "./repos/eventRepo";
 
 /* ------------------------------------------------------------------ *\n * In-memory repositories\n * ------------------------------------------------------------------ */
 
@@ -40,6 +41,7 @@ function memoryRepos(): Repos {
   const complaints = new Map<string, ComplaintRow>();
   const tags: TagRow[] = [];
   const audit: AuditRow[] = [];
+  const events: MatchEventRow[] = [];
   let seq = 0;
   const nextId = (prefix: string) => `${prefix}-${(seq += 1)}`;
 
@@ -78,6 +80,7 @@ function memoryRepos(): Repos {
           initialRadiusMetres: input.initialRadiusMetres,
           winner: null,
           endedAt: null,
+          endReason: null,
         };
         matches.set(row.id, row);
         return row;
@@ -98,6 +101,7 @@ function memoryRepos(): Repos {
         }
         if (patch.rosterLocked !== undefined) row.rosterLocked = patch.rosterLocked;
         if (patch.winner !== undefined) row.winner = patch.winner;
+        if (patch.endReason !== undefined) row.endReason = patch.endReason;
         if (patch.endedAt !== undefined) row.endedAt = patch.endedAt;
         if (patch.zoneCentre !== undefined) row.zoneCentre = patch.zoneCentre;
         if (patch.initialRadiusMetres !== undefined) {
@@ -134,6 +138,7 @@ function memoryRepos(): Repos {
           taggedAt: null,
           taggedById: null,
           captureChosenAt: null,
+          briefedAt: null,
           outsideSince: null,
           outsideSecondsTotal: 0,
           chargedDrainTicks: 0,
@@ -369,6 +374,30 @@ function memoryRepos(): Repos {
       listByMatch: async (_ctx, matchId) =>
         audit.filter((a) => a.matchId === matchId),
     },
+    events: {
+      append: async (_ctx, input) => {
+        const id = nextId("event");
+        events.push({
+          id,
+          matchId: input.matchId,
+          at: input.at,
+          kind: input.kind,
+          playerId: input.playerId ?? null,
+          actorId: input.actorId ?? null,
+          detail: input.detail ?? null,
+          refId: input.refId ?? null,
+          lat: input.lat ?? null,
+          lng: input.lng ?? null,
+        });
+        return id;
+      },
+      listByMatch: async (_ctx, matchId) =>
+        events
+          .filter((e) => e.matchId === matchId)
+          .sort((a, b) => a.at - b.at),
+      existsByRef: async (_ctx, matchId, refId) =>
+        events.some((e) => e.matchId === matchId && e.refId === refId),
+    },
   };
 
   return repos;
@@ -407,7 +436,6 @@ async function joinPlayers(roomCode: string, count: number, offset = 0) {
         callSign: `Runner ${index}`,
         displayName: `Runner ${index}`,
         displayNameMode: index % 2 === 0 ? "nickname" : "real",
-        playerMode: "spectator",
       }),
     );
   }
@@ -519,7 +547,6 @@ describe("join a room", () => {
         callSign: "Ghost",
         displayName: "Ghost",
         displayNameMode: "nickname",
-        playerMode: "spectator",
       }),
     ).rejects.toThrow(/No room/);
 
@@ -530,7 +557,6 @@ describe("join a room", () => {
         callSign: "runner 0",
         displayName: "Ghost",
         displayNameMode: "nickname",
-        playerMode: "spectator",
       }),
     ).rejects.toThrow(/call sign is taken/);
   });

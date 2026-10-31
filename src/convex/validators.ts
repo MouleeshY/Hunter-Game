@@ -37,6 +37,26 @@ export const displayNameModeValidator = v.union(
   v.literal("real"),
 );
 
+/** How a match finished, written once on the match record. */
+export const matchEndReasonValidator = v.union(
+  v.literal("no_active_shadows"),
+  v.literal("timer_expired"),
+  v.literal("staff_end"),
+  v.literal("aborted"),
+);
+
+/** Lines of the live match feed. Nothing here ever carries a position. */
+export const matchEventKindValidator = v.union(
+  v.literal("tag"),
+  v.literal("elimination"),
+  v.literal("removal"),
+  v.literal("shrink"),
+  v.literal("pause"),
+  v.literal("resume"),
+  v.literal("phase"),
+  v.literal("help"),
+);
+
 /** Shape of the config snapshot stored on every match. */
 export const matchConfigValidator = v.object({
   eventWindowMinutes: v.object({ min: v.number(), max: v.number() }),
@@ -51,6 +71,7 @@ export const matchConfigValidator = v.object({
   maxSpeedMetresPerSecond: v.number(),
   pingGhostFadeSeconds: v.number(),
   spectatorDelaySeconds: v.number(),
+  shrinkWarningSeconds: v.number(),
   positionRetentionHours: v.number(),
 
   zoneShrinkIntervalMinutes: v.number(),
@@ -88,6 +109,7 @@ export const matchConfigValidator = v.object({
   centrePickDistanceMetres: v.number(),
   eliminatedTurnsInto: playerModeValidator,
   removedSurvives: v.boolean(),
+  defaultCaptureMode: playerModeValidator,
 
   shadowAlivePointsPerMinute: v.number(),
   shadowAlivePointsPerMinuteCap: v.number(),

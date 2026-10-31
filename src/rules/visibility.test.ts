@@ -55,22 +55,62 @@ describe("shadows", () => {
   });
 });
 
-describe("spectators", () => {
-  it("see everyone delayed, including teammates", () => {
+describe("spectators, helpers and caught players", () => {
+  it("get the Hunter view: Hunters live, free Shadows only at the ping", () => {
     for (const status of ["tagged", "spectator", "eliminated"] as const) {
-      expect(visibilityFor(spectator(status), candidate("s3", "shadow"))).toBe(
-        "delayed",
-      );
       expect(visibilityFor(spectator(status), candidate("h3", "hunter"))).toBe(
-        "delayed",
+        "live",
+      );
+      expect(visibilityFor(spectator(status), candidate("s3", "shadow"))).toBe(
+        "ping",
       );
     }
   });
 
-  it("never get a live view", () => {
-    expect(visibilityFor(spectator("tagged"), candidate("s3", "shadow"))).not.toBe(
+  it("never see a free Shadow live", () => {
+    for (const status of ["tagged", "spectator", "eliminated"] as const) {
+      expect(visibilityFor(spectator(status), candidate("s3", "shadow"))).not.toBe(
+        "live",
+      );
+    }
+  });
+
+  it("do not see Shadows who are already out of play", () => {
+    for (const status of ["tagged", "spectator", "eliminated"] as const) {
+      expect(
+        visibilityFor(spectator(status), candidate("s4", "shadow", "tagged")),
+      ).toBeNull();
+      expect(
+        visibilityFor(spectator(status), candidate("s5", "shadow", "eliminated")),
+      ).toBeNull();
+    }
+  });
+
+  it("a Helper sees exactly what a Hunter sees", () => {
+    const helper: Viewer = {
+      kind: "player",
+      playerId: "s6",
+      role: "shadow",
+      status: "tagged",
+      mode: "helper",
+    };
+    expect(visibilityFor(helper, candidate("h3", "hunter"))).toBe("live");
+    expect(visibilityFor(helper, candidate("s3", "shadow"))).toBe("ping");
+    expect(visibilityFor(helper, candidate("h4", "hunter", "active"))).toBe(
       "live",
     );
+  });
+
+  it("a caught Shadow who joined the Hunters sees the same", () => {
+    const converted: Viewer = {
+      kind: "player",
+      playerId: "s7",
+      role: "shadow",
+      status: "tagged",
+      mode: "hunter",
+    };
+    expect(visibilityFor(converted, candidate("h3", "hunter"))).toBe("live");
+    expect(visibilityFor(converted, candidate("s3", "shadow"))).toBe("ping");
   });
 });
 

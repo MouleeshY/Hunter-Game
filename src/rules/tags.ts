@@ -4,6 +4,7 @@ import { distanceMetres } from "./zone";
 
 export type TagRejectionCode =
   | "match_not_active"
+  | "match_paused"
   | "unknown_scanner"
   | "scanner_not_hunter"
   | "scanner_not_active"
@@ -46,6 +47,8 @@ export function validateTagScan(input: {
     status: MatchStatus;
     startedAtMs: number | null;
     endsAtMs: number | null;
+    /** Frozen while an invigilator or the organiser has paused the match. */
+    paused?: boolean;
   };
   scanner: PlayerSnapshot | null;
   /** Resolved server-side from the scanned QR token; null when unknown. */
@@ -62,6 +65,9 @@ export function validateTagScan(input: {
     match.startedAtMs !== null &&
     (match.endsAtMs === null || input.nowMs <= match.endsAtMs);
   if (!timerRunning) return { ok: false, code: "match_not_active" };
+
+  // Stage 5, decision 3: nothing may be tagged while the match is frozen.
+  if (match.paused === true) return { ok: false, code: "match_paused" };
 
   if (!scanner) return { ok: false, code: "unknown_scanner" };
   if (!actsAsHunter(scanner)) {

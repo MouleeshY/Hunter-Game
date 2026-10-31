@@ -56,7 +56,6 @@ async function setupMatch(): Promise<Fixture> {
       callSign: `Runner ${i}`,
       displayName: `Runner ${i}`,
       displayNameMode: "nickname",
-      playerMode: "spectator",
     });
   }
 
@@ -202,15 +201,15 @@ describe("what a shadow may see", () => {
 });
 
 describe("what a spectator may see", () => {
-  it("sees everyone 60 seconds behind, never live", async () => {
-    const { match, players, hunter, shadows } = await setupMatch();
+  it("gets the Hunter view: Hunters live, free Shadows at the ping", async () => {
+    const { match, players, hunter } = await setupMatch();
     const centre = { lat: match.zoneCentre.lat, lng: match.zoneCentre.lng };
     for (const player of players) {
       await upload(match.id, player, T0 + 5 * MIN + 10_000, centre);
     }
 
     const repos = getRepos();
-    const tagged = await repos.players.findById(null, shadows[0].id);
+    const tagged = await repos.players.findById(null, players[3].id);
     await repos.players.patch(null, tagged!.id, { status: "spectator" });
 
     const view = await getMapView(null, {
@@ -220,12 +219,16 @@ describe("what a spectator may see", () => {
     });
 
     expect(view.markers.length).toBeGreaterThan(0);
+    // Stage 5, decision 4: the 60-second delayed view is gone. A spectator
+    // sees exactly what a Hunter sees.
+    expect(
+      view.markers.find((marker) => marker.playerId === hunter.id)?.kind,
+    ).toBe("live");
     for (const marker of view.markers) {
       if (marker.playerId === tagged!.id) continue; // own position is live
-      expect(marker.kind).toBe("delayed");
-      expect(marker.ageMs).toBeGreaterThanOrEqual(
-        RULES_CONFIG.spectatorDelaySeconds * 1000,
-      );
+      if (marker.role !== "shadow") continue;
+      expect(marker.kind).toBe("ping");
+      expect(marker.kind).not.toBe("live");
     }
     expect(hunter.id).toBeTruthy();
   });

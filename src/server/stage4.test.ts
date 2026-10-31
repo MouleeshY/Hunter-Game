@@ -63,7 +63,6 @@ async function setupMatch(playerCount = 6, durationMinutes = 90) {
       callSign: `Player${i}`,
       displayName: `Player ${i}`,
       displayNameMode: "nickname",
-      playerMode: "spectator",
     });
   }
 

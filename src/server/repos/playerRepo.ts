@@ -27,6 +27,8 @@ export interface PlayerRow {
   taggedById: string | null;
   /** Set once the tagged player has picked Spectator / Hunters / Helper. */
   captureChosenAt: number | null;
+  /** Set when the player tapped "I understand" on the rules briefing. */
+  briefedAt: number | null;
   outsideSince: number | null;
   outsideSecondsTotal: number;
   chargedDrainTicks: number;
@@ -72,6 +74,7 @@ export interface PlayerRepository {
       taggedAt?: number | null;
       taggedById?: string | null;
       captureChosenAt?: number | null;
+      briefedAt?: number | null;
     },
   ): Promise<void>;
   /** Out-of-zone state written by the position-upload path. */

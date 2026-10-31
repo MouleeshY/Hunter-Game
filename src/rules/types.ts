@@ -42,6 +42,21 @@ export type MatchStatus = "lobby" | "locked" | "headstart" | "live" | "ended";
 /** Public name choice on the leaderboard. */
 export type DisplayNameMode = "nickname" | "real";
 
+/**
+ * How the match finished, written once on the match record.
+ *
+ * - `no_active_shadows` / `timer_expired`: the normal end conditions.
+ * - `staff_end`: the organiser's "End match" — settled with the normal winner
+ *   and bonuses.
+ * - `aborted`: staff stopped it with no winner and no bonuses; points already
+ *   earned stay on the ledger.
+ */
+export type MatchEndReason =
+  | "no_active_shadows"
+  | "timer_expired"
+  | "staff_end"
+  | "aborted";
+
 // ---- Positions --------------------------------------------------------------
 
 /** WGS84 position. Raw positions are never returned publicly. */
