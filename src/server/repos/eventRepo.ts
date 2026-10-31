@@ -16,7 +16,8 @@ export type MatchEventKind =
   | "pause"
   | "resume"
   | "phase"
-  | "help";
+  | "help"
+  | "detection";
 
 export interface MatchEventRow {
   id: string;
@@ -30,6 +31,8 @@ export interface MatchEventRow {
   detail: string | null;
   /** Deduplicates scheduled events (one shrink per minute), like the ledger. */
   refId: string | null;
+  /** Exact metres for a proximity alert — console only, never a player. */
+  distanceMetres: number | null;
   /** Only ever shown to invigilators. */
   lat: number | null;
   lng: number | null;
@@ -46,12 +49,19 @@ export interface MatchEventRepository {
       actorId?: string | null;
       detail?: string | null;
       refId?: string | null;
+      distanceMetres?: number | null;
       lat?: number | null;
       lng?: number | null;
     },
   ): Promise<string>;
   /** Oldest first: a feed reads in the order things happened. */
   listByMatch(ctx: RepoContext, matchId: string): Promise<MatchEventRow[]>;
+  /** One kind only — the cooldown lookup reads detection rows this way. */
+  listByMatchAndKind(
+    ctx: RepoContext,
+    matchId: string,
+    kind: MatchEventKind,
+  ): Promise<MatchEventRow[]>;
   /** Has this scheduled event already been written? */
   existsByRef(ctx: RepoContext, matchId: string, refId: string): Promise<boolean>;
 }

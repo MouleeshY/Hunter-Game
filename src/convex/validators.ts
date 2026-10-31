@@ -27,6 +27,7 @@ export const playerStatusValidator = v.union(
 export const matchStatusValidator = v.union(
   v.literal("lobby"),
   v.literal("locked"),
+  v.literal("setup"),
   v.literal("headstart"),
   v.literal("live"),
   v.literal("ended"),
@@ -55,6 +56,7 @@ export const matchEventKindValidator = v.union(
   v.literal("resume"),
   v.literal("phase"),
   v.literal("help"),
+  v.literal("detection"),
 );
 
 /** Shape of the config snapshot stored on every match. */
@@ -72,6 +74,19 @@ export const matchConfigValidator = v.object({
   pingGhostFadeSeconds: v.number(),
   spectatorDelaySeconds: v.number(),
   shrinkWarningSeconds: v.number(),
+
+  setupDurationSeconds: v.number(),
+  setupExtensionSeconds: v.number(),
+  setupMaxDurationSeconds: v.number(),
+  minSeparationMetres: v.number(),
+  minHunterShadowSeparationMetres: v.number(),
+
+  proximityDetectionEnabled: v.boolean(),
+  detectionRadiusMetres: v.number(),
+  detectionMinZoneRadiusMetres: v.number(),
+  detectionCooldownSeconds: v.number(),
+  detectionStaleSeconds: v.number(),
+
   positionRetentionHours: v.number(),
 
   zoneShrinkIntervalMinutes: v.number(),

@@ -34,10 +34,18 @@ export type PlayerStatus =
 /**
  * Match stage the organiser drives.
  *
- * lobby → locked → headstart → live → ended
+ * lobby → locked → setup → headstart → live → ended
  * `locked` is optional: the organiser may start straight from the lobby.
+ * `setup` is the initial-separation countdown (Stage 5 add-on): positions are
+ * uploaded and checked, but the clock, the zone and the scoring do not run.
  */
-export type MatchStatus = "lobby" | "locked" | "headstart" | "live" | "ended";
+export type MatchStatus =
+  | "lobby"
+  | "locked"
+  | "setup"
+  | "headstart"
+  | "live"
+  | "ended";
 
 /** Public name choice on the leaderboard. */
 export type DisplayNameMode = "nickname" | "real";

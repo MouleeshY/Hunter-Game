@@ -5,6 +5,7 @@
  */
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import {
+  confirmBriefing,
   createMatch,
   getLobby,
   joinMatch,
@@ -15,6 +16,7 @@ import {
   rerollCentre,
   uploadPosition,
 } from "./index";
+import { beginHeadStart } from "./setup";
 import { setReposForTests, type Repos } from "./providers";
 import { RULES_CONFIG } from "../rules/config";
 import { distanceMetres } from "../rules/zone";
@@ -56,7 +58,10 @@ function memoryRepos(): Repos {
         [...matches.values()].find((m) => m.roomCode === roomCode) ?? null,
       listRunning: async () =>
         [...matches.values()].filter(
-          (m) => m.status === "headstart" || m.status === "live",
+          (m) =>
+            m.status === "setup" ||
+            m.status === "headstart" ||
+            m.status === "live",
         ),
       create: async (_ctx, input) => {
         const row: MatchRow = {
@@ -73,6 +78,8 @@ function memoryRepos(): Repos {
           zoneCentre: input.zoneCentre,
           organiserPosition: input.organiserPosition,
           lastPingAt: null,
+          setupStartedAt: null,
+          setupEndsAt: null,
           pausedAt: null,
           pausedTotalMs: 0,
           pauseReason: null,
@@ -91,6 +98,10 @@ function memoryRepos(): Repos {
         if (patch.status !== undefined) row.status = patch.status;
         if (patch.startedAt !== undefined) row.startedAt = patch.startedAt;
         if (patch.endsAt !== undefined) row.endsAt = patch.endsAt;
+        if (patch.setupStartedAt !== undefined) {
+          row.setupStartedAt = patch.setupStartedAt;
+        }
+        if (patch.setupEndsAt !== undefined) row.setupEndsAt = patch.setupEndsAt;
         if (patch.pausedAt !== undefined) row.pausedAt = patch.pausedAt;
         if (patch.pausedTotalMs !== undefined) {
           row.pausedTotalMs = patch.pausedTotalMs;
@@ -386,6 +397,7 @@ function memoryRepos(): Repos {
           actorId: input.actorId ?? null,
           detail: input.detail ?? null,
           refId: input.refId ?? null,
+          distanceMetres: input.distanceMetres ?? null,
           lat: input.lat ?? null,
           lng: input.lng ?? null,
         });
@@ -394,6 +406,10 @@ function memoryRepos(): Repos {
       listByMatch: async (_ctx, matchId) =>
         events
           .filter((e) => e.matchId === matchId)
+          .sort((a, b) => a.at - b.at),
+      listByMatchAndKind: async (_ctx, matchId, kind) =>
+        events
+          .filter((e) => e.matchId === matchId && e.kind === kind)
           .sort((a, b) => a.at - b.at),
       existsByRef: async (_ctx, matchId, refId) =>
         events.some((e) => e.matchId === matchId && e.refId === refId),
@@ -429,17 +445,32 @@ async function joinPlayers(roomCode: string, count: number, offset = 0) {
   const joined = [];
   for (let i = 0; i < count; i += 1) {
     const index = i + offset;
-    joined.push(
-      await joinMatch(null, {
-        userId: `user-${index}`,
-        roomCode,
-        callSign: `Runner ${index}`,
-        displayName: `Runner ${index}`,
-        displayNameMode: index % 2 === 0 ? "nickname" : "real",
-      }),
-    );
+    const row = await joinMatch(null, {
+      userId: `user-${index}`,
+      roomCode,
+      callSign: `Runner ${index}`,
+      displayName: `Runner ${index}`,
+      displayNameMode: index % 2 === 0 ? "nickname" : "real",
+    });
+    // Everyone confirms the rules briefing as they join, so the organiser can
+    // start without forcing it.
+    await confirmBriefing(null, {
+      matchId: row.matchId,
+      userId: `user-${index}`,
+    });
+    joined.push(row);
   }
   return joined;
+}
+
+/** Start the setup countdown and then the head start itself. */
+async function startHeadStart(matchId: string, seed?: number) {
+  await startMatch(null, {
+    matchId,
+    userId: "user-organiser",
+    seed,
+  });
+  return await beginHeadStart(null, { matchId, userId: "user-organiser" });
 }
 
 describe("create a room", () => {
@@ -604,20 +635,29 @@ describe("lock and start", () => {
     ).rejects.toThrow(/organiser/);
   });
 
-  it("starts at 4 players: teams assigned, roster locked, head start running", async () => {
+  it("starts at 4 players: setup first, then the head start", async () => {
     const created = await createRoom();
     await joinPlayers(created.roomCode, 4);
-    const started = await startMatch(null, {
+    const setup = await startMatch(null, {
       matchId: created.matchId,
       userId: "user-organiser",
       seed: 12345,
     });
 
+    // Stage 5 add-on: the roster is locked into a setup countdown first.
+    expect(setup.status).toBe("setup");
+    expect(setup.setupEndsAt).not.toBeNull();
+    expect(setup.startedAt).toBeNull();
+    expect(setup.hunters + setup.shadows).toBe(4);
+    expect(setup.hunters).toBeGreaterThanOrEqual(1);
+    expect(setup.shadows).toBeGreaterThanOrEqual(1);
+
+    const started = await beginHeadStart(null, {
+      matchId: created.matchId,
+      userId: "user-organiser",
+    });
     expect(started.status).toBe("headstart");
-    expect(started.hunters + started.shadows).toBe(4);
-    expect(started.hunters).toBeGreaterThanOrEqual(1);
-    expect(started.shadows).toBeGreaterThanOrEqual(1);
-    expect(started.headStartEndsAt - started.startedAt).toBe(
+    expect(started.headStartEndsAt! - started.startedAt!).toBe(
       RULES_CONFIG.headStartMinutes * 60_000,
     );
 
@@ -706,11 +746,7 @@ describe("position uploads are separate from the ping", () => {
   it("refuses uploads during the head start", async () => {
     const created = await createRoom();
     await joinPlayers(created.roomCode, 4);
-    await startMatch(null, {
-      matchId: created.matchId,
-      userId: "user-organiser",
-      seed: 7,
-    });
+    await startHeadStart(created.matchId, 7);
 
     const upload = await uploadPosition(null, {
       matchId: created.matchId,
@@ -726,11 +762,7 @@ describe("position uploads are separate from the ping", () => {
   it("stores uploads every few seconds once live", async () => {
     const created = await createRoom();
     await joinPlayers(created.roomCode, 4);
-    const started = await startMatch(null, {
-      matchId: created.matchId,
-      userId: "user-organiser",
-      seed: 8,
-    });
+    const started = await startHeadStart(created.matchId, 8);
 
     // Pretend the five-minute head start has just ended.
     const repos = (await import("./providers")).getRepos();
@@ -739,7 +771,7 @@ describe("position uploads are separate from the ping", () => {
     });
 
     const first = await uploadPosition(null, {
-      matchId: started.matchId,
+      matchId: created.matchId,
       userId: "user-0",
       lat: ORGANISER.lat,
       lng: ORGANISER.lng,
@@ -748,7 +780,7 @@ describe("position uploads are separate from the ping", () => {
     expect(first.stored).toBe(true);
 
     const tooSoon = await uploadPosition(null, {
-      matchId: started.matchId,
+      matchId: created.matchId,
       userId: "user-0",
       lat: ORGANISER.lat,
       lng: ORGANISER.lng,
@@ -758,7 +790,7 @@ describe("position uploads are separate from the ping", () => {
     expect(tooSoon.reason).toBe("too_soon");
 
     const after = await uploadPosition(null, {
-      matchId: started.matchId,
+      matchId: created.matchId,
       userId: "user-0",
       lat: ORGANISER.lat,
       lng: ORGANISER.lng,

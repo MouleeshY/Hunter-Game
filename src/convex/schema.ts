@@ -79,6 +79,14 @@ const schema = defineSchema(
       /** Most recent 3-minute ping; Hunters only see positions up to this. */
       lastPingAt: v.optional(v.number()),
       /**
+       * Initial-separation countdown (Stage 5 add-on). The clock, the zone and
+       * the scoring do not run between `setupStartedAt` and `setupEndsAt`;
+       * phones upload positions so the server can check who is too close.
+       * The organiser may push `setupEndsAt` out by one extension at a time.
+       */
+      setupStartedAt: v.optional(v.number()),
+      setupEndsAt: v.optional(v.number()),
+      /**
        * Emergency freeze. While `pausedAt` is set the whole match clock stops:
        * timer, zone shrink, pings and the out-of-zone drain. `pausedTotalMs`
        * keeps the elapsed time of every finished pause so the clock can skip it.
@@ -309,11 +317,14 @@ const schema = defineSchema(
       actorId: v.optional(v.id("players")),
       detail: v.optional(v.string()),
       refId: v.optional(v.string()),
+      /** Exact metres for a proximity alert — console only, never a player. */
+      distanceMetres: v.optional(v.number()),
       /** Only ever shown to invigilators. */
       lat: v.optional(v.number()),
       lng: v.optional(v.number()),
     })
       .index("by_match_time", ["matchId", "at"])
+      .index("by_match_kind", ["matchId", "kind"])
       .index("by_match_ref", ["matchId", "refId"]),
   },
   {

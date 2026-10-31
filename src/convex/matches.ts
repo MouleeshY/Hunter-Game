@@ -176,7 +176,7 @@ export const submitTagScan = mutation({
     if (match.pausedAt !== null) {
       return {
         ok: false as const,
-        code: "match_not_active" as const,
+        code: "match_paused" as const,
         distanceMetres: null,
         points: 0,
         matchEnded: false,
@@ -224,6 +224,7 @@ export const submitTagScan = mutation({
         status: match.status,
         startedAtMs: match.startedAt,
         endsAtMs: match.endsAt,
+        paused: match.pausedAt !== null,
       },
       scanner: playerSnapshot(scanner),
       target: target ? playerSnapshot(target) : null,
@@ -302,6 +303,13 @@ export const submitTagScan = mutation({
       taggedAt: now,
       taggedById: scanner.id,
       captureChosenAt: null,
+    });
+    await repos().events.append(ctx, {
+      matchId: match.id,
+      at: now,
+      kind: "tag",
+      playerId: target!.id,
+      actorId: scanner.id,
     });
 
     if (points > 0) {

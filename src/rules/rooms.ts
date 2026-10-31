@@ -149,12 +149,13 @@ export function joinRefusalMessage(reason: JoinRefusal): string | null {
 
 /* ------------------------------------------------------------------ *\n * Match state machine\n * ------------------------------------------------------------------ */
 
-export type MatchEvent = "lock" | "unlock" | "start" | "end";
+export type MatchEvent = "lock" | "unlock" | "start" | "end" | "extend";
 
 /**
  * The only legal match transitions:
- *   lobby     → locked, headstart
- *   locked    → lobby, headstart
+ *   lobby     → locked, setup
+ *   locked    → lobby, setup
+ *   setup     → setup (extend), headstart
  *   headstart → live, ended
  *   live      → ended
  * Everything else is refused, so a late join or a double start cannot slip in.
@@ -165,11 +166,16 @@ export function nextMatchStatus(
 ): MatchStatus | null {
   if (current === "lobby") {
     if (event === "lock") return "locked";
-    if (event === "start") return "headstart";
+    if (event === "start") return "setup";
     return null;
   }
   if (current === "locked") {
     if (event === "unlock") return "lobby";
+    if (event === "start") return "setup";
+    return null;
+  }
+  if (current === "setup") {
+    if (event === "extend") return "setup";
     if (event === "start") return "headstart";
     return null;
   }

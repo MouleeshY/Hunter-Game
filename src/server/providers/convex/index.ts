@@ -73,6 +73,8 @@ function matchRow(m: Doc<"matches">): MatchRow {
     createdByUserId: m.createdBy ?? null,
     zoneCentre: { lat: m.zone.centreLat, lng: m.zone.centreLng },
     lastPingAt: m.lastPingAt ?? null,
+    setupStartedAt: m.setupStartedAt ?? null,
+    setupEndsAt: m.setupEndsAt ?? null,
     pausedAt: m.pausedAt ?? null,
     pausedTotalMs: m.pausedTotalMs ?? 0,
     pauseReason: m.pauseReason ?? null,
@@ -206,7 +208,11 @@ export const matchRepo: MatchRepository = {
   },
 
   listRunning: async (ctx) => {
-    const [headstart, live] = await Promise.all([
+    const [setup, headstart, live] = await Promise.all([
+      reader(ctx)
+        .query("matches")
+        .withIndex("by_status", (q) => q.eq("status", "setup"))
+        .collect(),
       reader(ctx)
         .query("matches")
         .withIndex("by_status", (q) => q.eq("status", "headstart"))
@@ -216,7 +222,7 @@ export const matchRepo: MatchRepository = {
         .withIndex("by_status", (q) => q.eq("status", "live"))
         .collect(),
     ]);
-    return [...headstart, ...live].map(matchRow);
+    return [...setup, ...headstart, ...live].map(matchRow);
   },
 
   create: async (ctx, input) => {
@@ -258,6 +264,8 @@ export const matchRepo: MatchRepository = {
       startedAt?: number;
       endsAt?: number;
       lastPingAt?: number;
+      setupStartedAt?: number;
+      setupEndsAt?: number;
       pausedAt?: number;
       pausedTotalMs?: number;
       pauseReason?: string;
@@ -278,6 +286,12 @@ export const matchRepo: MatchRepository = {
     }
     if (patch.lastPingAt !== undefined && patch.lastPingAt !== null) {
       next.lastPingAt = patch.lastPingAt;
+    }
+    if (patch.setupStartedAt !== undefined) {
+      next.setupStartedAt = patch.setupStartedAt ?? undefined;
+    }
+    if (patch.setupEndsAt !== undefined) {
+      next.setupEndsAt = patch.setupEndsAt ?? undefined;
     }
     if (patch.winner !== undefined && patch.winner !== null) {
       next.winner = patch.winner;
@@ -847,6 +861,7 @@ function eventRow(e: Doc<"matchEvents">): MatchEventRow {
     actorId: e.actorId ?? null,
     detail: e.detail ?? null,
     refId: e.refId ?? null,
+    distanceMetres: e.distanceMetres ?? null,
     lat: e.lat ?? null,
     lng: e.lng ?? null,
   };
@@ -864,6 +879,7 @@ export const eventRepo: MatchEventRepository = {
       actorId: input.actorId ? (input.actorId as Id<"players">) : undefined,
       detail: input.detail ?? undefined,
       refId: input.refId ?? undefined,
+      distanceMetres: input.distanceMetres ?? undefined,
       lat: input.lat ?? undefined,
       lng: input.lng ?? undefined,
     });
@@ -874,6 +890,18 @@ export const eventRepo: MatchEventRepository = {
       .query("matchEvents")
       .withIndex("by_match_time", (q) =>
         q.eq("matchId", matchId as Id<"matches">),
+      )
+      .collect();
+    return docs.map(eventRow);
+  },
+
+  listByMatchAndKind: async (ctx, matchId, kind) => {
+    const docs = await reader(ctx)
+      .query("matchEvents")
+      .withIndex("by_match_kind", (q) =>
+        q
+          .eq("matchId", matchId as Id<"matches">)
+          .eq("kind", kind as MatchEventKind),
       )
       .collect();
     return docs.map(eventRow);

@@ -60,8 +60,10 @@ export interface UploadSchedule {
  * Phones upload every few seconds (config `uploadIntervalSeconds`) so the server
  * can answer "where is everyone right now" for teammates, invigilators and tag
  * checks. The ping interval only controls what Hunters are shown. Uploads are
- * therefore rate-limited to a few seconds, never to three minutes, and they
- * begin only once the head start is over.
+ * therefore rate-limited to a few seconds, never to three minutes.
+ *
+ * They also run during `setup`, where the clock is stopped but the server needs
+ * live positions to check that everyone has spread out.
  */
 export function uploadSchedule(args: {
   status: MatchStatus;
@@ -71,10 +73,15 @@ export function uploadSchedule(args: {
 }): UploadSchedule {
   const { status, lastUploadAtMs, nowMs, config } = args;
 
-  if (status === "lobby" || status === "locked" || status === "headstart") {
+  if (status === "setup") {
+    // Setup: the ring on everyone's screen is fed from these. Rate limit only.
+  } else if (
+    status === "lobby" ||
+    status === "locked" ||
+    status === "headstart"
+  ) {
     return { allowed: false, reason: "not_started", nextAllowedAtMs: null };
-  }
-  if (status !== "live") {
+  } else if (status !== "live") {
     return { allowed: false, reason: "not_live", nextAllowedAtMs: null };
   }
 

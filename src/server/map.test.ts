@@ -6,11 +6,13 @@ import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import {
   createMatch,
   claimInvite,
+  confirmBriefing,
   getMapView,
   joinMatch,
   startMatch,
   uploadPosition,
 } from "./index";
+import { beginHeadStart } from "./setup";
 import { getRepos, setReposForTests } from "./providers";
 import { memoryRepos } from "./testSupport/memoryRepos";
 import { purgeExpiredPositions } from "./positionService";
@@ -57,12 +59,20 @@ async function setupMatch(): Promise<Fixture> {
       displayName: `Runner ${i}`,
       displayNameMode: "nickname",
     });
+    await confirmBriefing(null, {
+      matchId: created.matchId,
+      userId: `user-${i}`,
+    });
   }
 
   await startMatch(null, {
     matchId: created.matchId,
     userId: "user-organiser",
     seed: 4242,
+  });
+  await beginHeadStart(null, {
+    matchId: created.matchId,
+    userId: "user-organiser",
   });
 
   // Rewrite the clock so the match started at T0.

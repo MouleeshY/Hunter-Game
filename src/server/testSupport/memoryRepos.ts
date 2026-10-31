@@ -39,7 +39,10 @@ export function memoryRepos(): Repos {
         ),
       listRunning: async () =>
         [...matches.values()].filter(
-          (m) => m.status === "headstart" || m.status === "live",
+          (m) =>
+            m.status === "setup" ||
+            m.status === "headstart" ||
+            m.status === "live",
         ),
       create: async (_ctx, input) => {
         const row: MatchRow = {
@@ -56,6 +59,8 @@ export function memoryRepos(): Repos {
           zoneCentre: input.zoneCentre,
           organiserPosition: input.organiserPosition,
           lastPingAt: null,
+          setupStartedAt: null,
+          setupEndsAt: null,
           pausedAt: null,
           pausedTotalMs: 0,
           pauseReason: null,
@@ -75,6 +80,10 @@ export function memoryRepos(): Repos {
         if (patch.startedAt !== undefined) row.startedAt = patch.startedAt;
         if (patch.endsAt !== undefined) row.endsAt = patch.endsAt;
         if (patch.lastPingAt !== undefined) row.lastPingAt = patch.lastPingAt;
+        if (patch.setupStartedAt !== undefined) {
+          row.setupStartedAt = patch.setupStartedAt;
+        }
+        if (patch.setupEndsAt !== undefined) row.setupEndsAt = patch.setupEndsAt;
         if (patch.pausedAt !== undefined) row.pausedAt = patch.pausedAt;
         if (patch.pausedTotalMs !== undefined) {
           row.pausedTotalMs = patch.pausedTotalMs;
@@ -367,6 +376,7 @@ export function memoryRepos(): Repos {
           actorId: input.actorId ?? null,
           detail: input.detail ?? null,
           refId: input.refId ?? null,
+          distanceMetres: input.distanceMetres ?? null,
           lat: input.lat ?? null,
           lng: input.lng ?? null,
         });
@@ -375,6 +385,10 @@ export function memoryRepos(): Repos {
       listByMatch: async (_ctx, matchId) =>
         events
           .filter((e) => e.matchId === matchId)
+          .sort((a, b) => a.at - b.at),
+      listByMatchAndKind: async (_ctx, matchId, kind) =>
+        events
+          .filter((e) => e.matchId === matchId && e.kind === kind)
           .sort((a, b) => a.at - b.at),
       existsByRef: async (_ctx, matchId, refId) =>
         events.some((e) => e.matchId === matchId && e.refId === refId),

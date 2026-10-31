@@ -52,6 +52,39 @@ export interface MatchConfig {
   spectatorDelaySeconds: number;
   /** [TUNED] Warn every player this many seconds before the zone shrinks. */
   shrinkWarningSeconds: number;
+
+  // ---- Setup period (initial separation) ----------------------------------
+
+  /**
+   * [TUNED] Length of the setup phase between roster lock and the head start,
+   * during which everyone walks to their starting position. The clock, the
+   * zone and the scoring do not run.
+   */
+  setupDurationSeconds: number;
+  /** [TUNED] One extension of the setup countdown, in seconds. */
+  setupExtensionSeconds: number;
+  /** [TUNED] Longest a setup period may run in total, after extensions. */
+  setupMaxDurationSeconds: number;
+  /** [TUNED] Every player must be at least this far from every other. */
+  minSeparationMetres: number;
+  /** [TUNED] Hunters must be at least this far from any Shadow at setup. */
+  minHunterShadowSeparationMetres: number;
+
+  // ---- Proximity detection ------------------------------------------------
+
+  /** [TUNED] Master switch; the organiser may turn this off for a match. */
+  proximityDetectionEnabled: boolean;
+  /** [TUNED] A Hunter and a Shadow inside this distance both get an alert. */
+  detectionRadiusMetres: number;
+  /**
+   * [TUNED] Detection only runs while the zone is at least this wide. Below
+   * it the play area is too small to hide in and the alerts would not stop.
+   */
+  detectionMinZoneRadiusMetres: number;
+  /** [TUNED] No repeat alert for the same Hunter/Shadow pair within this. */
+  detectionCooldownSeconds: number;
+  /** [TUNED] A reading older than this never triggers a detection alert. */
+  detectionStaleSeconds: number;
   /** [TUNED] Position history is deleted this long after a match ends. */
   positionRetentionHours: number;
 
@@ -166,6 +199,19 @@ export const RULES_CONFIG: MatchConfig = {
   pingGhostFadeSeconds: 45,
   spectatorDelaySeconds: 60,
   shrinkWarningSeconds: 30,
+
+  setupDurationSeconds: 180,
+  setupExtensionSeconds: 60,
+  setupMaxDurationSeconds: 600,
+  minSeparationMetres: 25,
+  minHunterShadowSeparationMetres: 100,
+
+  proximityDetectionEnabled: true,
+  detectionRadiusMetres: 50,
+  detectionMinZoneRadiusMetres: 400,
+  detectionCooldownSeconds: 60,
+  detectionStaleSeconds: 30,
+
   positionRetentionHours: 24,
 
   zoneShrinkIntervalMinutes: 10,

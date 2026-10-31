@@ -26,6 +26,10 @@ export interface MatchRow {
   zoneCentre: LatLng;
   /** Most recent 3-minute ping; Hunters only see positions up to this. */
   lastPingAt: number | null;
+  /** When the initial-separation countdown began, or null outside setup. */
+  setupStartedAt: number | null;
+  /** When the setup countdown runs out. The organiser may push it out. */
+  setupEndsAt: number | null;
   /** Frozen moment while the match is paused, or null while it runs. */
   pausedAt: number | null;
   /** Total milliseconds spent in finished pauses. */
@@ -50,7 +54,10 @@ export interface MatchRepository {
     ctx: RepoContext,
     endedBeforeMs: number,
   ): Promise<MatchRow[]>;
-  /** Matches still on the clock (head start or live), for the minute tick. */
+  /**
+   * Matches the minute tick must look at: the setup countdown (to advance it)
+   * plus everything on the clock (head start or live).
+   */
   listRunning(ctx: RepoContext): Promise<MatchRow[]>;
   create(
     ctx: RepoContext,
@@ -73,6 +80,8 @@ export interface MatchRepository {
       startedAt?: number | null;
       endsAt?: number | null;
       lastPingAt?: number | null;
+      setupStartedAt?: number | null;
+      setupEndsAt?: number | null;
       pausedAt?: number | null;
       pausedTotalMs?: number;
       pauseReason?: string | null;

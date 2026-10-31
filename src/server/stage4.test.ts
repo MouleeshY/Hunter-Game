@@ -6,11 +6,13 @@
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import {
   claimInvite,
+  confirmBriefing,
   createMatch,
   getLobby,
   joinMatch,
   startMatch,
 } from "./index";
+import { beginHeadStart } from "./setup";
 import { getRepos, setReposForTests } from "./providers";
 import { memoryRepos } from "./testSupport/memoryRepos";
 import { runMatchTick } from "./scheduler";
@@ -64,12 +66,21 @@ async function setupMatch(playerCount = 6, durationMinutes = 90) {
       displayName: `Player ${i}`,
       displayNameMode: "nickname",
     });
+    await confirmBriefing(null, {
+      matchId: created.matchId,
+      userId: `user-${i}`,
+    });
   }
 
-  const started = await startMatch(null, {
+  // Setup countdown first (Stage 5), then the head start itself.
+  await startMatch(null, {
     matchId: created.matchId,
     userId: ORGANISER,
     seed: 11,
+  });
+  const started = await beginHeadStart(null, {
+    matchId: created.matchId,
+    userId: ORGANISER,
   });
 
   return { created, started };

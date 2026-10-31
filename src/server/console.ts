@@ -516,6 +516,14 @@ export async function forceTag(
     detail: `Credited to ${hunter.callSign} · ${Math.round(points)} points`,
     at: now,
   });
+  await repos.events.append(ctx, {
+    matchId: match.id,
+    at: now,
+    kind: "tag",
+    playerId: shadow.id,
+    actorId: hunter.id,
+    detail: "Forced by an invigilator.",
+  });
 
   const refreshed = await repos.players.listByMatch(ctx, match.id);
   if (
@@ -555,6 +563,12 @@ export async function removePlayer(
     targetLabel: player.callSign,
     reason: input.reason,
     at: now,
+  });
+  await repos.events.append(ctx, {
+    matchId: head.match.id,
+    at: now,
+    kind: "removal",
+    playerId: player.id,
   });
 
   // Removing the last Shadow ends the match for the Hunters.
@@ -661,6 +675,12 @@ export async function pauseMatch(
     pausedAt: now,
     pauseReason: input.reason || "Paused by staff.",
   });
+  await repos.events.append(ctx, {
+    matchId: match.id,
+    at: now,
+    kind: "pause",
+    detail: input.reason || "Paused by staff.",
+  });
   await logAction(ctx, {
     match,
     actorUserId: input.userId,
@@ -695,6 +715,11 @@ export async function resumeMatch(
     pausedAt: null,
     pausedTotalMs,
     pauseReason: null,
+  });
+  await repos.events.append(ctx, {
+    matchId: match.id,
+    at: now,
+    kind: "resume",
   });
   await logAction(ctx, {
     match,

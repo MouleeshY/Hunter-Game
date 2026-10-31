@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -9,19 +9,20 @@ import { QrCard } from "@/components/match/QrCard";
 import { Scanner } from "@/components/match/Scanner";
 import { ComplaintForm } from "@/components/match/ComplaintForm";
 import { CaptureChoice } from "@/components/match/CaptureChoice";
+import { AlertBar } from "@/components/match/AlertBar";
+import { Briefing } from "@/components/match/Briefing";
+import { EventFeed } from "@/components/match/EventFeed";
+import { MatchEnded } from "@/components/match/MatchEnded";
+import { MatchHud } from "@/components/match/MatchHud";
+import { SetupPanel } from "@/components/match/SetupPanel";
+import { StaffPanel } from "@/components/match/StaffPanel";
+import { useConnection } from "@/hooks/useConnection";
+import { useMatchAlerts } from "@/hooks/useMatchAlerts";
 import { useGeolocation, useWakeLock } from "@/hooks/useGeolocation";
 import { usePositionUpload } from "@/hooks/usePositionUpload";
 import { useServerClock } from "@/hooks/useServerClock";
 import { RULES_CONFIG } from "@/rules/config";
 import { simulatedFixAt, simulatedGpsAvailable } from "@/lib/simulatedGps";
-
-function formatCountdown(ms: number | null): string {
-  if (ms === null) return "—";
-  const total = Math.max(0, Math.ceil(ms / 1000));
-  const minutes = Math.floor(total / 60);
-  const seconds = total % 60;
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
-}
 
 const GPS_LABEL: Record<string, string> = {
   idle: "GPS off",
@@ -59,12 +60,14 @@ const SCAN_COPY: Record<string, string> = {
   scanner_not_hunter: "Only Hunters can scan codes.",
   scanner_not_active: "You are not in play.",
   match_not_active: "The match is not running right now.",
+  match_paused: "The match is paused — tags open again when it resumes.",
 };
 
 type Panel = "none" | "qr" | "scan" | "complaint";
 
 export default function Match() {
   const { roomCode = "" } = useParams();
+  const navigate = useNavigate();
   const lobby = useQuery(
     api.rooms.lobby,
     roomCode ? { roomCode: roomCode.toUpperCase() } : "skip",
@@ -74,7 +77,12 @@ export default function Match() {
     api.map.view,
     matchId ? { matchId: matchId as Id<"matches"> } : "skip",
   );
+  const feed = useQuery(
+    api.events.feed,
+    matchId ? { matchId: matchId as Id<"matches"> } : "skip",
+  );
   const scan = useMutation(api.matches.submitTagScan);
+  const sendHelp = useMutation(api.events.help);
 
   // The match's own config snapshot — never the default RULES_CONFIG.
   const config = view?.config ?? RULES_CONFIG;
@@ -84,11 +92,34 @@ export default function Match() {
   const [simElapsed, setSimElapsed] = useState(0);
   const devMode = simulatedGpsAvailable();
 
-  // Countdowns run on the server clock, never the phone's.
+  const status = view?.status ?? null;
   const paused = view?.paused ?? false;
+  const ended = status === "ended";
+  const setupActive = status === "setup";
+  const live = status === "live";
+
+  // Countdowns run on the server clock, never the phone's.
   const now = useServerClock({
     serverNowMs: view?.serverNowMs ?? null,
     paused,
+  });
+
+  // Anything arriving from the server counts as a heartbeat for reconnecting.
+  const connection = useConnection({ heartbeat: lobby?.serverNowMs ?? null });
+
+  const serverBreach = view?.me.breach ?? null;
+  const alerts = useMatchAlerts({
+    status,
+    paused,
+    playerStatus: lobby?.me.status ?? null,
+    outside: serverBreach !== null && serverBreach.status !== "inside",
+    lastPingAtMs: view?.ping.lastPingAtMs ?? null,
+    msToShrink:
+      view?.zone.nextShrinkAtMs === null || view?.zone.nextShrinkAtMs === undefined
+        ? null
+        : view.zone.nextShrinkAtMs - now,
+    shrinkWarningMs: config.shrinkWarningSeconds * 1000,
+    detection: feed?.alerts ?? [],
   });
 
   useEffect(() => {
@@ -109,9 +140,9 @@ export default function Match() {
 
   const fix = simulate ? simFix : gps.fix;
   const gpsStatus = simulate ? "live" : gps.status;
-  const live = view?.status === "live";
 
-  useWakeLock(live);
+  // The screen stays awake only while there is something to watch.
+  useWakeLock(live || setupActive);
 
   // Opening the QR screen bumps this so a fresh reading goes up immediately.
   const [uploadPulse, setUploadPulse] = useState(0);
@@ -119,10 +150,19 @@ export default function Match() {
   const [scanResult, setScanResult] = useState<
     { ok: boolean; message: string } | null
   >(null);
+  const [helpState, setHelpState] = useState<string | null>(null);
+
+  // Stage 5, task 7: an ended match stops uploads, GPS and the wake lock.
+  useEffect(() => {
+    if (!ended) return;
+    gps.stop();
+    setPanel("none");
+  }, [ended, gps]);
 
   const uploadState = usePositionUpload({
     matchId,
-    enabled: live && fix !== null && (gpsStatus === "live" || gpsStatus === "weak"),
+    enabled:
+      (live || setupActive) && fix !== null && (gpsStatus === "live" || gpsStatus === "weak"),
     fix,
     gpsStatus,
     config,
@@ -179,6 +219,24 @@ export default function Match() {
     }
   };
 
+  const askForHelp = async () => {
+    if (!matchId) return;
+    setHelpState(null);
+    try {
+      await sendHelp({
+        matchId: matchId as Id<"matches">,
+        lat: fix?.lat,
+        lng: fix?.lng,
+        accuracyMetres: fix?.accuracy,
+      });
+      setHelpState("Sent. Every invigilator can see your last position.");
+    } catch (cause) {
+      setHelpState(
+        cause instanceof Error ? cause.message : "Could not send that.",
+      );
+    }
+  };
+
   if (!roomCode) {
     return (
       <main className="mx-auto max-w-xl px-4 py-16 text-center">
@@ -190,10 +248,10 @@ export default function Match() {
     );
   }
 
-  if (lobby === undefined || view === undefined) {
+  if (lobby === undefined || view === undefined || feed === undefined) {
     return (
       <p className="px-4 py-16 text-center text-[13px] uppercase tracking-[0.18em] text-muted-foreground">
-        Loading the map…
+        Loading the match…
       </p>
     );
   }
@@ -212,6 +270,7 @@ export default function Match() {
   }
 
   const me = lobby.me;
+  const needsBriefing = me.briefedAt === null && me.playerId !== null;
   const iAmActiveShadow = me.role === "shadow" && me.status === "active";
   const iCanScan =
     (me.role === "hunter" && me.status === "active") ||
@@ -229,7 +288,9 @@ export default function Match() {
     ? breach.status === "inside"
       ? 0
       : breach.secondsOutside +
-        (uploadState.lastSentAt ? Math.max(0, (now - uploadState.lastSentAt) / 1000) : 0)
+        (uploadState.lastSentAt
+          ? Math.max(0, (now - uploadState.lastSentAt) / 1000)
+          : 0)
     : 0;
   const graceLeft = Math.max(
     0,
@@ -249,25 +310,39 @@ export default function Match() {
     accuracyMetres: marker.accuracyMetres,
   }));
 
+  const detectionOff =
+    !config.proximityDetectionEnabled
+      ? "Proximity alerts are switched off for this match."
+      : live && view.zone.radiusMetres < config.detectionMinZoneRadiusMetres
+        ? `Proximity alerts are off below a ${config.detectionMinZoneRadiusMetres} m zone.`
+        : null;
+
   return (
     <div className="min-h-screen bg-background px-4 pb-16 pt-8 text-foreground sm:px-6">
       <main className="mx-auto max-w-3xl">
-        <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
+        <header className="mb-4 flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
               Shadow Hunt · room {view.roomCode} · {me.callSign ?? "staff"}
             </p>
-            <h1 className="mt-2 font-display text-3xl tracking-tight">
-              {view.status === "headstart"
+            <h1 className="mt-1 font-display text-3xl tracking-tight">
+              {status === "headstart"
                 ? "Head start"
-                : view.status === "live"
+                : status === "live"
                   ? "Match live"
-                  : view.status === "ended"
-                    ? "Match ended"
-                    : "Play area"}
+                  : status === "setup"
+                    ? "Setup"
+                    : status === "ended"
+                      ? "Match ended"
+                      : "Play area"}
             </h1>
           </div>
           <div className="flex items-center gap-2">
+            {connection.reconnecting && (
+              <span className="rounded-full bg-amber-500 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-black">
+                Reconnecting
+              </span>
+            )}
             <span
               className={`rounded-full px-3 py-1 text-[10px] uppercase tracking-[0.18em] ${GPS_CLASS[gpsStatus] ?? GPS_CLASS.idle}`}
             >
@@ -279,267 +354,302 @@ export default function Match() {
           </div>
         </header>
 
-        {paused && (
-          <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
-            <p className="text-[11px] uppercase tracking-[0.2em]">
-              Match paused
-            </p>
-            <p className="mt-1 text-[14px]">
-              {view.pauseReason ??
-                "The clock, the zone and the drain are frozen for everyone."}
+        <AlertBar
+          banners={alerts.banners}
+          mute={alerts.mute}
+          onToggleMute={alerts.toggleMute}
+          onDismiss={alerts.dismiss}
+        />
+
+        {connection.reconnecting && (
+          <div className="mb-4 rounded-xl border border-amber-400 bg-amber-50 p-4 text-amber-950">
+            <p className="text-[15px] font-semibold">Reconnecting…</p>
+            <p className="mt-1 text-[13px]">
+              Your last position is kept. Uploads resume on their own as soon as
+              the signal is back.
             </p>
           </div>
         )}
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="rounded-xl border border-hairline p-4">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-              Zone shrinks in
-            </p>
-            <p className="mt-1 font-display text-2xl">
-              {formatCountdown(
-                view.zone.nextShrinkAtMs === null
-                  ? null
-                  : view.zone.nextShrinkAtMs - now,
-              )}
-            </p>
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              Radius {Math.round(view.zone.radiusMetres)} m ·{" "}
-              {config.zoneShrinkIntervalMinutes} min steps
-            </p>
-          </div>
-          <div className="rounded-xl border border-hairline p-4">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-              Next radar ping
-            </p>
-            <p className="mt-1 font-display text-2xl">
-              {formatCountdown(
-                view.ping.nextPingAtMs === null
-                  ? null
-                  : view.ping.nextPingAtMs - now,
-              )}
-            </p>
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              {me.role === "hunter"
-                ? "Shadows show as ping ghosts"
-                : view.me.isInvigilator
-                  ? "Invigilator view: everyone live"
-                  : "Shadows: teammates live, Hunters hidden"}
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-4">
-          <GameMap
-            centre={{ lat: view.zone.centreLat, lng: view.zone.centreLng }}
-            radiusMetres={view.zone.radiusMetres}
-            markers={markers}
-            pulseKey={pulseKey}
-            className="h-[420px]"
-          />
-        </div>
-
-        {/* ---- Capture choice ------------------------------------------------ */}
-        {live && needsCaptureChoice && panel === "none" && (
-          <div className="mt-4">
-            <CaptureChoice
-              matchId={matchId!}
-              defaultMode={me.mode ?? "spectator"}
-              onChosen={() => setScanResult(null)}
-            />
-          </div>
-        )}
-
-        {/* ---- Play actions -------------------------------------------------- */}
-        {live && panel === "none" && (
-          <div className="mt-4 flex flex-wrap gap-3">
-            {iAmActiveShadow && (
-              <Button
-                size="lg"
-                className="h-11 uppercase tracking-[0.18em]"
-                onClick={() => setPanel("qr")}
-              >
-                I'm caught — show my code
-              </Button>
+        {/* ---- Frozen end state ------------------------------------------- */}
+        {ended ? (
+          <MatchEnded view={view} onBack={() => navigate("/play")} />
+        ) : (
+          <>
+            {needsBriefing && (
+              <div className="mb-4">
+                <Briefing
+                  matchId={matchId as Id<"matches"> | null}
+                  confirmedAt={me.briefedAt}
+                />
+              </div>
             )}
-            {iCanScan && (
+
+            <MatchHud view={view} nowMs={now} />
+
+            {setupActive && (
+              <div className="mt-4">
+                <SetupPanel
+                  view={view}
+                  matchId={matchId as Id<"matches">}
+                  nowMs={now}
+                />
+              </div>
+            )}
+
+            {view.staff && <div className="mt-4"><StaffPanel view={view} nowMs={now} /></div>}
+
+            {detectionOff && (
+              <p className="mt-3 text-[12px] text-muted-foreground">
+                {detectionOff}
+              </p>
+            )}
+
+            {paused && (
+              <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
+                <p className="text-[11px] uppercase tracking-[0.2em]">
+                  Match paused
+                </p>
+                <p className="mt-1 text-[14px]">
+                  {view.pauseReason ??
+                    "The clock, the zone and the drain are frozen for everyone."}
+                </p>
+                <p className="mt-1 text-[13px]">
+                  Tags and complaints open again when it resumes.
+                </p>
+              </div>
+            )}
+
+            <div className="mt-4">
+              <GameMap
+                centre={{ lat: view.zone.centreLat, lng: view.zone.centreLng }}
+                radiusMetres={view.zone.radiusMetres}
+                markers={markers}
+                pulseKey={pulseKey}
+                className="h-[420px]"
+              />
+            </div>
+
+            {/* ---- Capture choice ----------------------------------------- */}
+            {live && needsCaptureChoice && panel === "none" && (
+              <div className="mt-4">
+                <CaptureChoice
+                  matchId={matchId as Id<"matches">}
+                  defaultMode={me.mode ?? "spectator"}
+                  onChosen={() => setScanResult(null)}
+                />
+              </div>
+            )}
+
+            {/* ---- Play actions -------------------------------------------- */}
+            {live && panel === "none" && (
+              <div className="mt-4 flex flex-wrap gap-3">
+                {iAmActiveShadow && (
+                  <Button
+                    size="lg"
+                    className="h-11 uppercase tracking-[0.18em]"
+                    onClick={() => setPanel("qr")}
+                  >
+                    I'm caught — show my code
+                  </Button>
+                )}
+                {iCanScan && (
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className="h-11 uppercase tracking-[0.18em]"
+                    onClick={() => {
+                      setScanResult(null);
+                      setPanel("scan");
+                    }}
+                  >
+                    Scan a code
+                  </Button>
+                )}
+                {iCanComplain && (
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className="h-11 uppercase tracking-[0.18em]"
+                    onClick={() => setPanel("complaint")}
+                  >
+                    Shadow won't show code
+                  </Button>
+                )}
+              </div>
+            )}
+
+            {scanResult && panel === "none" && (
+              <p
+                className={`mt-3 text-[13px] ${
+                  scanResult.ok ? "text-foreground" : "text-destructive"
+                }`}
+              >
+                {scanResult.ok ? "✓ " : "✕ "}
+                {scanResult.message}
+              </p>
+            )}
+
+            {panel === "qr" && me.qrToken && (
+              <div className="mt-4">
+                <QrCard
+                  token={me.qrToken}
+                  callSign={me.callSign}
+                  proximityMetres={config.tagProximityMetres}
+                  devMode={devMode}
+                  onOpened={() => setUploadPulse((value) => value + 1)}
+                  onClose={() => setPanel("none")}
+                />
+              </div>
+            )}
+
+            {panel === "scan" && (
+              <div className="mt-4">
+                <Scanner
+                  devMode={devMode}
+                  onScan={(token) => void submitScan(token)}
+                  onClose={() => setPanel("none")}
+                />
+              </div>
+            )}
+
+            {panel === "complaint" && matchId && (
+              <div className="mt-4">
+                <ComplaintForm
+                  matchId={matchId as Id<"matches">}
+                  onClose={() => setPanel("none")}
+                  onFiled={() => {
+                    setPanel("none");
+                    setScanResult({
+                      ok: true,
+                      message:
+                        "Complaint filed. Every invigilator has been notified.",
+                    });
+                  }}
+                />
+              </div>
+            )}
+
+            {breach && breach.status !== "inside" && (
+              <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
+                <p className="text-[11px] uppercase tracking-[0.2em]">
+                  {setupActive ? "Outside the area" : "Outside the zone"}
+                </p>
+                <p className="mt-1 text-[14px]">
+                  {setupActive
+                    ? "Move back inside the play area before the setup ends."
+                    : breach.status === "grace"
+                      ? `Get back inside. Points start draining in ${graceLeft}s.`
+                      : breach.status === "draining"
+                        ? `Draining ${config.drainPointsPerTick} points every ${config.drainIntervalSeconds}s. Out for ${Math.round(secondsOutsideNow)}s.`
+                        : "Eliminated: you spent too long outside the zone."}
+                </p>
+              </div>
+            )}
+
+            {uploadState.lastError && (
+              <p className="mt-3 text-[12px] text-muted-foreground">
+                {uploadState.lastError}
+              </p>
+            )}
+            {uploadState.flagged && (
+              <p className="mt-3 text-[12px] text-destructive">
+                This phone's position was flagged by the server (impossible jump
+                or accuracy). It will not count for tags.
+              </p>
+            )}
+
+            <div className="mt-4">
+              <EventFeed items={feed.items} ended={feed.ended} />
+            </div>
+
+            {/* ---- Safety --------------------------------------------------- */}
+            <div className="mt-4 flex flex-wrap items-center gap-3">
               <Button
-                size="lg"
+                type="button"
                 variant="outline"
-                className="h-11 uppercase tracking-[0.18em]"
-                onClick={() => {
-                  setScanResult(null);
-                  setPanel("scan");
-                }}
-              >
-                Scan a code
-              </Button>
-            )}
-            {iCanComplain && (
-              <Button
                 size="lg"
-                variant="outline"
-                className="h-11 uppercase tracking-[0.18em]"
-                onClick={() => setPanel("complaint")}
+                className="h-11 border-destructive uppercase tracking-[0.18em] text-destructive hover:text-destructive"
+                onClick={() => void askForHelp()}
               >
-                Shadow won't show code
+                I need help
               </Button>
+              {helpState && (
+                <p className="text-[13px] text-muted-foreground">{helpState}</p>
+              )}
+            </div>
+
+            {devMode && (
+              <label className="mt-4 flex items-center gap-2 text-[12px] text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={simulate}
+                  onChange={(event) => {
+                    setSimulate(event.target.checked);
+                    setSimElapsed(0);
+                  }}
+                />
+                Simulated GPS (development only) — replays a scripted walk
+              </label>
             )}
-          </div>
-        )}
 
-        {scanResult && panel === "none" && (
-          <p
-            className={`mt-3 text-[13px] ${
-              scanResult.ok ? "text-foreground" : "text-destructive"
-            }`}
-          >
-            {scanResult.ok ? "✓ " : "✕ "}
-            {scanResult.message}
-          </p>
-        )}
+            {needPermission && (
+              <div className="mt-6 rounded-xl border border-hairline p-6">
+                <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+                  Location permission
+                </p>
+                <p className="mt-3 text-[14px]">
+                  Shadow Hunt needs your location while a match is running so
+                  teammates and invigilators can see you, so the setup spacing
+                  can be checked, and so Hunters get the{" "}
+                  {config.pingIntervalMinutes}-minute ping.
+                </p>
+                <ul className="mt-3 grid gap-1 text-[12px] text-muted-foreground">
+                  <li>· Positions are never public — only your match sees them.</li>
+                  <li>
+                    · Position history is deleted {config.positionRetentionHours}{" "}
+                    hours after the match ends. Scores are kept.
+                  </li>
+                  <li>
+                    · Readings worse than {config.maxGpsAccuracyMetres} m are
+                    ignored.
+                  </li>
+                </ul>
+                <Button
+                  className="mt-5 h-11 uppercase tracking-[0.18em]"
+                  onClick={gps.request}
+                >
+                  Enable location
+                </Button>
+              </div>
+            )}
 
-        {panel === "qr" && me.qrToken && (
-          <div className="mt-4">
-            <QrCard
-              token={me.qrToken}
-              callSign={me.callSign}
-              proximityMetres={config.tagProximityMetres}
-              devMode={devMode}
-              onOpened={() => setUploadPulse((value) => value + 1)}
-              onClose={() => setPanel("none")}
-            />
-          </div>
-        )}
+            {!simulate && gps.status === "denied" && (
+              <div className="mt-4 rounded-xl border border-hairline p-4">
+                <p className="text-[13px]">
+                  Location is blocked. Enable it for this site in your browser
+                  settings, then try again.
+                </p>
+                <Button variant="outline" className="mt-3" onClick={gps.request}>
+                  Try again
+                </Button>
+              </div>
+            )}
 
-        {panel === "scan" && (
-          <div className="mt-4">
-            <Scanner
-              devMode={devMode}
-              onScan={(token) => void submitScan(token)}
-              onClose={() => setPanel("none")}
-            />
-          </div>
-        )}
+            {!simulate && gps.status === "lost" && (
+              <p className="mt-4 text-[13px] text-amber-800">
+                GPS signal lost. Move into the open and keep the app open; uploads
+                resume automatically.
+              </p>
+            )}
 
-        {panel === "complaint" && matchId && (
-          <div className="mt-4">
-            <ComplaintForm
-              matchId={matchId}
-              onClose={() => setPanel("none")}
-              onFiled={() => {
-                setPanel("none");
-                setScanResult({
-                  ok: true,
-                  message:
-                    "Complaint filed. Every invigilator has been notified.",
-                });
-              }}
-            />
-          </div>
-        )}
-
-        {breach && breach.status !== "inside" && (
-          <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
-            <p className="text-[11px] uppercase tracking-[0.2em]">
-              Outside the zone
-            </p>
-            <p className="mt-1 text-[14px]">
-              {breach.status === "grace"
-                ? `Get back inside. Points start draining in ${graceLeft}s.`
-                : breach.status === "draining"
-                  ? `Draining ${config.drainPointsPerTick} points every ${config.drainIntervalSeconds}s. Out for ${Math.round(secondsOutsideNow)}s.`
-                  : "Eliminated: you spent too long outside the zone."}
-            </p>
-          </div>
-        )}
-
-        {uploadState.lastError && (
-          <p className="mt-3 text-[12px] text-muted-foreground">
-            {uploadState.lastError}
-          </p>
-        )}
-        {uploadState.flagged && (
-          <p className="mt-3 text-[12px] text-destructive">
-            This phone's position was flagged by the server (impossible jump or
-            accuracy). It will not count for tags.
-          </p>
-        )}
-
-        {devMode && (
-          <label className="mt-4 flex items-center gap-2 text-[12px] text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={simulate}
-              onChange={(event) => {
-                setSimulate(event.target.checked);
-                setSimElapsed(0);
-              }}
-            />
-            Simulated GPS (development only) — replays a scripted walk
-          </label>
-        )}
-
-        {needPermission && (
-          <div className="mt-6 rounded-xl border border-hairline p-6">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
-              Location permission
-            </p>
-            <p className="mt-3 text-[14px]">
-              Shadow Hunt needs your location while a match is live so teammates
-              and invigilators can see you, and so Hunters get the{" "}
-              {config.pingIntervalMinutes}-minute ping.
-            </p>
-            <ul className="mt-3 grid gap-1 text-[12px] text-muted-foreground">
-              <li>· Positions are never public — only your match can see them.</li>
-              <li>
-                · Position history is deleted {config.positionRetentionHours}{" "}
-                hours after the match ends. Scores are kept.
-              </li>
-              <li>
-                · Readings worse than {config.maxGpsAccuracyMetres} m are
-                ignored.
-              </li>
-            </ul>
-            <Button
-              className="mt-5 h-11 uppercase tracking-[0.18em]"
-              onClick={gps.request}
-            >
-              Enable location
-            </Button>
-          </div>
-        )}
-
-        {!simulate && gps.status === "denied" && (
-          <div className="mt-4 rounded-xl border border-hairline p-4">
-            <p className="text-[13px]">
-              Location is blocked. Enable it for this site in your browser
-              settings, then try again.
-            </p>
-            <Button variant="outline" className="mt-3" onClick={gps.request}>
-              Try again
-            </Button>
-          </div>
-        )}
-
-        {!simulate && gps.status === "lost" && (
-          <p className="mt-4 text-[13px] text-amber-800">
-            GPS signal lost. Move into the open and keep the app open; uploads
-            resume automatically.
-          </p>
-        )}
-
-        {view.status === "headstart" && (
-          <p className="mt-4 text-[13px] text-muted-foreground">
-            Pings begin when the head start ends. Uploads start then too.
-          </p>
-        )}
-
-        {view.status === "ended" && (
-          <p className="mt-4 text-[13px] text-muted-foreground">
-            Match ended. Position history is deleted{" "}
-            {config.positionRetentionHours} hours after the end.
-          </p>
+            {status === "headstart" && (
+              <p className="mt-4 text-[13px] text-muted-foreground">
+                The head start is running: nobody's position is uploaded or
+                revealed until it ends.
+              </p>
+            )}
+          </>
         )}
       </main>
     </div>

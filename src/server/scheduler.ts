@@ -23,6 +23,7 @@ import {
 import { getRepos } from "./providers";
 import { activeShadows, endMatch } from "./matchEnd";
 import { award } from "./settlement";
+import { advanceToHeadStart, setupIsClear } from "./setup";
 import type { MatchRow, PlayerRow, RepoContext } from "./repos";
 
 /** Upper bound on back-fill in one run, so a cold start cannot time out. */
@@ -32,6 +33,8 @@ export interface TickResult {
   matches: number;
   aliveAwards: number;
   ended: number;
+  /** Setup countdowns that ran out with everyone clear. */
+  advanced: number;
 }
 
 function inPlayCount(players: PlayerRow[]): number {
@@ -108,7 +111,12 @@ export async function runMatchTick(
 ): Promise<TickResult> {
   const repos = getRepos();
   const running = await repos.matches.listRunning(ctx);
-  const result: TickResult = { matches: 0, aliveAwards: 0, ended: 0 };
+  const result: TickResult = {
+    matches: 0,
+    aliveAwards: 0,
+    ended: 0,
+    advanced: 0,
+  };
 
   for (const match of running) {
     result.matches += 1;
@@ -121,6 +129,21 @@ export async function runMatchTick(
       pausedAtMs: match.pausedAt,
       pausedTotalMs: match.pausedTotalMs,
     });
+
+    // ---- setup countdown -------------------------------------------------
+    // The clock is not running yet: this uses real time. When the countdown
+    // ends with everyone far enough apart the head start begins on its own;
+    // otherwise the organiser extends it or forces the start (audited).
+    if (match.status === "setup") {
+      if (match.setupEndsAt !== null && now >= match.setupEndsAt) {
+        const clear = await setupIsClear(ctx, match, now);
+        if (clear) {
+          await advanceToHeadStart(ctx, { match, nowMs: now });
+          result.advanced += 1;
+        }
+      }
+      continue;
+    }
 
     const players = await repos.players.listByMatch(ctx, match.id);
 
@@ -147,6 +170,34 @@ export async function runMatchTick(
             minute,
             nowMs: now,
           });
+
+          // The zone steps down on a fixed schedule; say so in the feed.
+          if (
+            minute > 0 &&
+            minute % match.config.zoneShrinkIntervalMinutes === 0
+          ) {
+            const refId = `shrink:${minute}`;
+            const already = await repos.events.existsByRef(
+              ctx,
+              match.id,
+              refId,
+            );
+            if (!already) {
+              const radius = zoneRadiusAtMinute({
+                minute,
+                activePlayerCount: inPlayCount(players),
+                initialRadiusMetres: match.initialRadiusMetres,
+                config: match.config,
+              });
+              await repos.events.append(ctx, {
+                matchId: match.id,
+                at: now,
+                kind: "shrink",
+                refId,
+                detail: `The play area is down to ${Math.round(radius)} m.`,
+              });
+            }
+          }
         }
         if (through >= from) {
           await repos.matches.patch(ctx, match.id, {
@@ -167,7 +218,18 @@ export async function runMatchTick(
 
     if (end.ended) {
       const settled = await endMatch(ctx, { matchId: match.id, nowMs: now });
-      if (settled.ended && !settled.alreadySettled) result.ended += 1;
+      if (settled.ended && !settled.alreadySettled) {
+        result.ended += 1;
+        await repos.events.append(ctx, {
+          matchId: match.id,
+          at: now,
+          kind: "phase",
+          detail:
+            settled.winner === "hunters"
+              ? "Match over: no Shadow left in play."
+              : "Match over: the timer ran out.",
+        });
+      }
       continue;
     }
 
@@ -181,6 +243,14 @@ export async function runMatchTick(
     });
     if (derived !== match.status) {
       await repos.matches.patch(ctx, match.id, { status: derived });
+      if (derived === "live") {
+        await repos.events.append(ctx, {
+          matchId: match.id,
+          at: now,
+          kind: "phase",
+          detail: "The match is live. Pings are on.",
+        });
+      }
       match.status = derived;
     }
   }

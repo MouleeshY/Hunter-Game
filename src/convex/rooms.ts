@@ -8,9 +8,11 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import {
+  beginHeadStart,
   claimInvite,
   confirmBriefing,
   createMatch,
+  extendSetup,
   getLobby,
   joinMatch,
   previewInvite,
@@ -39,6 +41,15 @@ export const createRoom = mutation({
     organiserLat: v.number(),
     organiserLng: v.number(),
     invigilatorNames: v.array(v.string()),
+    /** Setup presets (Stage 5, task 2). */
+    defaultCaptureMode: v.optional(
+      v.union(
+        v.literal("spectator"),
+        v.literal("hunter"),
+        v.literal("helper"),
+      ),
+    ),
+    proximityDetection: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx);
@@ -48,6 +59,8 @@ export const createRoom = mutation({
       organiserLat: args.organiserLat,
       organiserLng: args.organiserLng,
       invigilatorNames: args.invigilatorNames,
+      defaultCaptureMode: args.defaultCaptureMode,
+      proximityDetection: args.proximityDetection,
     });
   },
 });
@@ -111,6 +124,10 @@ export const lockRoster = mutation({
   },
 });
 
+/**
+ * Opens the setup countdown (Stage 5 add-on): teams are drawn, the roster is
+ * locked, and everyone walks to a starting position.
+ */
 export const startRoom = mutation({
   args: {
     matchId: v.id("matches"),
@@ -162,6 +179,34 @@ export const resumeRoom = mutation({
       userId,
       reason: args.reason ?? "Resumed by the organiser.",
     });
+  },
+});
+
+/**
+ * The organiser's "start the head start" button at the end of setup. Refuses
+ * (with the count) while players are still too close unless `force` is set.
+ */
+export const beginHeadStartRoom = mutation({
+  args: {
+    matchId: v.id("matches"),
+    force: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    return await beginHeadStart(ctx, {
+      matchId: args.matchId,
+      userId,
+      force: args.force,
+    });
+  },
+});
+
+/** Push the setup countdown out by one minute (audited). */
+export const extendSetupRoom = mutation({
+  args: { matchId: v.id("matches") },
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    return await extendSetup(ctx, { matchId: args.matchId, userId });
   },
 });
 

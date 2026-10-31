@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RULES_CONFIG } from "@/rules/config";
 import { GameMap } from "@/components/map/GameMap";
+import { Briefing } from "@/components/match/Briefing";
 
 /* ------------------------------------------------------------------ *
  * Schemas\n * ------------------------------------------------------------------ */
@@ -25,6 +26,8 @@ const createMatchSchema = z.object({
   invigilatorOne: z.string().min(2, "Name the first invigilator."),
   invigilatorTwo: z.string().min(2, "Name the second invigilator."),
   invigilatorThree: z.string().optional(),
+  defaultCaptureMode: z.enum(["spectator", "hunter", "helper"]),
+  proximityDetection: z.boolean(),
 });
 
 const joinMatchSchema = z.object({
@@ -114,6 +117,8 @@ function CreateRoomForm({
       invigilatorOne: "",
       invigilatorTwo: "",
       invigilatorThree: "",
+      defaultCaptureMode: RULES_CONFIG.defaultCaptureMode,
+      proximityDetection: RULES_CONFIG.proximityDetectionEnabled,
     },
   });
 
@@ -131,6 +136,8 @@ function CreateRoomForm({
         organiserLat: values.organiserLat,
         organiserLng: values.organiserLng,
         invigilatorNames: names,
+        defaultCaptureMode: values.defaultCaptureMode,
+        proximityDetection: values.proximityDetection,
       });
       onCreated(created.roomCode);
     } catch (cause) {
@@ -163,6 +170,53 @@ function CreateRoomForm({
                 {...form.register("durationMinutes", { valueAsNumber: true })}
               />
             </Field>
+            <Field
+              label="After a Shadow is caught"
+              hint="The default offer at capture; everyone still picks for themselves"
+            >
+              <div className="flex gap-2">
+                {(
+                  [
+                    ["spectator", "Spectator"],
+                    ["hunter", "Hunter"],
+                    ["helper", "Helper"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <Button
+                    key={value}
+                    type="button"
+                    variant={
+                      form.watch("defaultCaptureMode") === value
+                        ? "default"
+                        : "outline"
+                    }
+                    className="h-10 flex-1 uppercase tracking-[0.14em]"
+                    onClick={() => form.setValue("defaultCaptureMode", value)}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            </Field>
+          </div>
+
+          <label className="flex items-start gap-2 text-[13px] text-muted-foreground">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={form.watch("proximityDetection")}
+              onChange={(event) =>
+                form.setValue("proximityDetection", event.target.checked)
+              }
+            />
+            <span>
+              Proximity alerts — warn a Hunter and a Shadow when they come within{' '}
+              {RULES_CONFIG.detectionRadiusMetres} m. Switch off to run a match
+              without them.
+            </span>
+          </label>
+
+          <div className="grid gap-5">
             <Field
               label="Invigilators"
               hint={`${RULES_CONFIG.invigilatorCount.min}–${RULES_CONFIG.invigilatorCount.max} named people, not players`}
@@ -388,6 +442,7 @@ function JoinRoomForm({
 const STATUS_COPY: Record<string, string> = {
   lobby: "Lobby open — players can still join",
   locked: "Roster locked — no one else can join",
+  setup: "Setup period — everyone to your starting position",
   headstart: "Head start running — pings begin when it ends",
   live: "Match live",
   ended: "Match ended",
@@ -403,13 +458,19 @@ function LobbyView({
   const lobby = useQuery(api.rooms.lobby, { roomCode });
   const lockRoster = useMutation(api.rooms.lockRoster);
   const startRoom = useMutation(api.rooms.startRoom);
+  const beginHeadStart = useMutation(api.rooms.beginHeadStartRoom);
+  const extendSetup = useMutation(api.rooms.extendSetupRoom);
   const rerollCentre = useMutation(api.rooms.rerollCentreHandler);
   const endRoom = useMutation(api.rooms.endRoom);
+  const abortRoom = useMutation(api.rooms.abortRoom);
   const pauseRoom = useMutation(api.rooms.pauseRoom);
   const resumeRoom = useMutation(api.rooms.resumeRoom);
   const now = useNow();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [forceStart, setForceStart] = useState(false);
+  const [abortOpen, setAbortOpen] = useState(false);
+  const [abortReason, setAbortReason] = useState("");
 
   if (lobby === undefined) {
     return (
@@ -469,6 +530,71 @@ function LobbyView({
           </p>
         )}
       </div>
+
+      {lobby.me.playerId !== null && lobby.me.briefedAt === null && (
+        <Briefing
+          matchId={lobby.matchId as never}
+          confirmedAt={lobby.me.briefedAt}
+        />
+      )}
+
+      {(lobby.status === "lobby" ||
+        lobby.status === "locked" ||
+        lobby.status === "setup") && (
+        <div className="rounded-xl border border-hairline p-6">
+          <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+            Match setup summary
+          </p>
+          <dl className="mt-3 grid gap-x-6 gap-y-2 sm:grid-cols-2">
+            {[
+              ["Length", `${lobby.setup.matchDurationMinutes} minutes`],
+              ["Head start", `${lobby.setup.headStartMinutes} minutes`],
+              [
+                "Pings",
+                `every ${lobby.setup.pingIntervalMinutes} minutes`,
+              ],
+              [
+                "Zone shrinks",
+                `every ${lobby.setup.zoneShrinkIntervalMinutes} minutes`,
+              ],
+              [
+                "Starting radius",
+                `${Math.round(lobby.setup.initialRadiusMetres)} m`,
+              ],
+              [
+                "Teams",
+                `${lobby.setup.hunterCount} Hunters · ${lobby.setup.shadowCount} Shadows`,
+              ],
+              [
+                "After a capture",
+                lobby.setup.defaultCaptureMode === "hunter"
+                  ? "join the Hunters (default)"
+                  : lobby.setup.defaultCaptureMode === "helper"
+                    ? "Helper (default)"
+                    : "Spectator (default)",
+              ],
+              [
+                "Proximity alerts",
+                lobby.setup.proximityDetectionEnabled
+                  ? `on within ${lobby.setup.detectionRadiusMetres} m`
+                  : "off for this match",
+              ],
+            ].map(([label, value]) => (
+              <div
+                key={label}
+                className="flex items-baseline justify-between gap-3 border-b border-hairline pb-1 last:border-0"
+              >
+                <dt className="text-[13px] text-muted-foreground">{label}</dt>
+                <dd className="text-[14px] font-medium">{value}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-3 text-[12px] text-muted-foreground">
+            The organiser picks the length and the after-capture default at
+            setup; the rest comes from the rules.
+          </p>
+        </div>
+      )}
 
       <div className="grid gap-6 sm:grid-cols-2">
         <div className="rounded-xl border border-hairline p-6">
@@ -589,6 +715,79 @@ function LobbyView({
         </div>
       )}
 
+      {lobby.staff && (
+        <div className="rounded-xl border border-hairline p-6">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+              Staff board
+            </p>
+            <p className="text-[13px] text-muted-foreground">
+              {lobby.staff.playerCount} players · {lobby.staff.briefedCount}{" "}
+              of {lobby.staff.playerCount} confirmed the rules
+            </p>
+          </div>
+          <ul className="mt-3 grid gap-1 sm:grid-cols-2">
+            {lobby.staff.players.map((player) => {
+              const age =
+                player.lastUploadAtMs === null
+                  ? null
+                  : Math.round((now - player.lastUploadAtMs) / 1000);
+              const reports =
+                age !== null && lobby.status !== "headstart" && age <= 30;
+              return (
+                <li
+                  key={player.id}
+                  className="flex items-center justify-between border-b border-hairline pb-1 text-[14px]"
+                >
+                  <span className="font-medium">{player.callSign}</span>
+                  <span className="flex items-center gap-2">
+                    <span
+                      className={`rounded-full px-2 py-[2px] text-[10px] uppercase tracking-[0.14em] ${
+                        player.briefedAt === null
+                          ? "bg-amber-100 text-amber-900"
+                          : "bg-emerald-100 text-emerald-900"
+                      }`}
+                    >
+                      {player.briefedAt === null ? "Rules" : "Rules ✓"}
+                    </span>
+                    {lobby.status !== "headstart" && (
+                      <span
+                        className={`text-[11px] ${
+                          reports || age === null
+                            ? "text-muted-foreground"
+                            : "font-semibold text-destructive"
+                        }`}
+                      >
+                        {age === null
+                          ? "Location off"
+                          : reports
+                            ? `Reporting · ${age}s`
+                            : `Out of signal · ${age}s`}
+                      </span>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
+      {lobby.status === "setup" && lobby.setupEndsAt !== null && (
+        <div className="rounded-xl border border-hairline p-6 text-center">
+          <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+            Setup period ends in
+          </p>
+          <p className="mt-1 font-display text-4xl tabular-nums">
+            {formatClock(lobby.setupEndsAt - now)}
+          </p>
+          <p className="mt-2 text-[13px] text-muted-foreground">
+            Everyone to your starting position — the clock, the zone and the
+            scoring are stopped. The spacing check is on the match screen.
+          </p>
+        </div>
+      )}
+
       {error && (
         <p className="text-center text-[12px] text-destructive">{error}</p>
       )}
@@ -624,14 +823,100 @@ function LobbyView({
                 onClick={() =>
                   run(
                     () => startRoom({ matchId: lobby.matchId as never }),
-                    "Could not start the match.",
+                    "Could not start the setup period.",
                   )
                 }
               >
-                Start match
+                Start setup
               </Button>
+              {forceStart ? (
+                <span className="flex flex-wrap items-center gap-2">
+                  <span className="text-[13px] text-muted-foreground">
+                    {lobby.pendingBriefings > 0
+                      ? `${lobby.pendingBriefings} player${lobby.pendingBriefings === 1 ? " has" : "s have"} not confirmed the rules. Start anyway?`
+                      : "Start the match anyway?"}
+                  </span>
+                  <Button
+                    type="button"
+                    size="lg"
+                    disabled={busy}
+                    className="h-11 uppercase tracking-[0.18em]"
+                    onClick={() =>
+                      void run(async () => {
+                        await startRoom({
+                          matchId: lobby.matchId as never,
+                          force: true,
+                        });
+                        setForceStart(false);
+                      }, "Could not start the setup period.")
+                    }
+                  >
+                    Yes, start
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="lg"
+                    className="h-11 uppercase tracking-[0.18em]"
+                    onClick={() => setForceStart(false)}
+                  >
+                    Cancel
+                  </Button>
+                </span>
+              ) : (
+                !lobby.canStart &&
+                lobby.pendingBriefings > 0 && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="lg"
+                    disabled={busy}
+                    className="h-11 uppercase tracking-[0.18em]"
+                    onClick={() => setForceStart(true)}
+                  >
+                    Start anyway
+                  </Button>
+                )
+              )}
             </>
           )}
+
+        {lobby.me.isOrganiser && lobby.status === "setup" && (
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              size="lg"
+              disabled={busy}
+              className="h-11 uppercase tracking-[0.18em]"
+              onClick={() =>
+                run(
+                  () => extendSetup({ matchId: lobby.matchId as never }),
+                  "Could not extend the setup period.",
+                )
+              }
+            >
+              Extend setup 1 min
+            </Button>
+            <Button
+              type="button"
+              size="lg"
+              disabled={busy}
+              className="h-11 uppercase tracking-[0.18em]"
+              onClick={() =>
+                void run(async () => {
+                  await beginHeadStart({ matchId: lobby.matchId as never });
+                }, "Could not start the head start.")
+              }
+            >
+              Start the head start
+            </Button>
+            <Button asChild variant="outline" size="lg" className="h-11 uppercase tracking-[0.18em]">
+              <Link to={`/match/${lobby.roomCode}`}>Spacing check</Link>
+            </Button>
+          </>
+        )}
+
         <Button
           type="button"
           variant="outline"
@@ -643,53 +928,145 @@ function LobbyView({
         </Button>
       </div>
 
-      {lobby.me.isOrganiser &&
-        (lobby.status === "headstart" || lobby.status === "live") && (
+      {(lobby.status === "setup" ||
+        lobby.status === "headstart" ||
+        lobby.status === "live") &&
+        (lobby.me.isOrganiser || lobby.me.isInvigilator) && (
           <div className="flex flex-wrap justify-center gap-3">
+            {lobby.me.isOrganiser && (
+              <Button
+                type="button"
+                variant="outline"
+                size="lg"
+                disabled={busy}
+                className="h-11 uppercase tracking-[0.18em]"
+                onClick={() =>
+                  run(
+                    () =>
+                      lobby.paused
+                        ? resumeRoom({
+                            matchId: lobby.matchId as never,
+                            reason: "Resumed by the organiser.",
+                          })
+                        : pauseRoom({
+                            matchId: lobby.matchId as never,
+                            reason: "Paused by the organiser.",
+                          }),
+                    "Could not pause or resume.",
+                  )
+                }
+              >
+                {lobby.paused ? "Resume match" : "Pause match"}
+              </Button>
+            )}
+            {lobby.me.isOrganiser && (
+              <Button
+                type="button"
+                size="lg"
+                disabled={busy}
+                className="h-11 uppercase tracking-[0.18em]"
+                onClick={() =>
+                  run(
+                    () =>
+                      endRoom({
+                        matchId: lobby.matchId as never,
+                        reason: "Ended by the organiser.",
+                      }),
+                    "Could not end the match.",
+                  )
+                }
+              >
+                End match
+              </Button>
+            )}
+            {abortOpen ? (
+              <span className="grid w-full gap-2">
+                <label className="text-center text-[13px] text-muted-foreground">
+                  Reason (required) — no winner, no bonuses; points already
+                  earned are kept.
+                </label>
+                <span className="flex flex-wrap justify-center gap-2">
+                  <Input
+                    value={abortReason}
+                    placeholder="Why is this being aborted?"
+                    onChange={(event) => setAbortReason(event.target.value)}
+                    className="max-w-sm"
+                  />
+                  <Button
+                    type="button"
+                    size="lg"
+                    disabled={busy || abortReason.trim().length === 0}
+                    className="h-11 uppercase tracking-[0.18em]"
+                    onClick={() =>
+                      void run(async () => {
+                        await abortRoom({
+                          matchId: lobby.matchId as never,
+                          reason: abortReason.trim(),
+                        });
+                        setAbortOpen(false);
+                        setAbortReason("");
+                      }, "Could not abort the match.")
+                    }
+                  >
+                    Abort match
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="lg"
+                    className="h-11 uppercase tracking-[0.18em]"
+                    onClick={() => setAbortOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                </span>
+              </span>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                size="lg"
+                disabled={busy}
+                className="h-11 uppercase tracking-[0.18em] text-destructive hover:text-destructive"
+                onClick={() => setAbortOpen(true)}
+              >
+                Abort match
+              </Button>
+            )}
+          </div>
+        )}
+
+      {(lobby.status === "setup" || lobby.status === "headstart") &&
+        lobby.me.isOrganiser &&
+        abortOpen && (
+          <div className="flex flex-wrap justify-center gap-2">
+            <Input
+              value={abortReason}
+              placeholder="Reason for aborting (required)"
+              onChange={(event) => setAbortReason(event.target.value)}
+              className="max-w-sm"
+            />
             <Button
               type="button"
-              variant="outline"
               size="lg"
-              disabled={busy}
+              disabled={busy || abortReason.trim().length === 0}
               className="h-11 uppercase tracking-[0.18em]"
               onClick={() =>
-                run(
-                  () =>
-                    lobby.paused
-                      ? resumeRoom({
-                          matchId: lobby.matchId as never,
-                          reason: "Resumed by the organiser.",
-                        })
-                      : pauseRoom({
-                          matchId: lobby.matchId as never,
-                          reason: "Paused by the organiser.",
-                        }),
-                  "Could not pause or resume.",
-                )
+                void run(async () => {
+                  await abortRoom({
+                    matchId: lobby.matchId as never,
+                    reason: abortReason.trim(),
+                  });
+                  setAbortOpen(false);
+                  setAbortReason("");
+                }, "Could not abort the match.")
               }
             >
-              {lobby.paused ? "Resume match" : "Pause match"}
-            </Button>
-            <Button
-              type="button"
-              size="lg"
-              disabled={busy}
-              className="h-11 uppercase tracking-[0.18em]"
-              onClick={() =>
-                run(
-                  () =>
-                    endRoom({
-                      matchId: lobby.matchId as never,
-                      reason: "Ended by the organiser.",
-                    }),
-                  "Could not end the match.",
-                )
-              }
-            >
-              End match
+              Abort match
             </Button>
           </div>
         )}
+
       {lobby.me.isOrganiser && !lobby.canStart && lobby.startBlockedReason && (
         <p className="text-center text-[12px] text-muted-foreground">
           {lobby.startBlockedReason}
@@ -697,6 +1074,14 @@ function LobbyView({
       )}
     </div>
   );
+}
+
+/** Seconds left, as m:ss. */
+function formatClock(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
 /* ------------------------------------------------------------------ *

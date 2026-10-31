@@ -16,17 +16,23 @@ import {
   uploadSchedule,
   visibilityFor,
   zoneRadiusAtMinute,
+  detectionVerdict,
+  detectionPairKey,
+  type DetectionSample,
   type MatchConfig,
   type MatchStatus,
   type OutOfZoneStatus,
   type PlayerMode,
   type PlayerStatus,
   type Role,
+  type SeparationSample,
+  type SeparationStatus,
   type Viewer,
   type VisibilityMode,
 } from "../rules";
 import { getRepos } from "./providers";
 import { award } from "./settlement";
+import { checkSeparation, separationForPlayer, type SeparationIssue } from "./setup";
 import type {
   LocationRow,
   MatchRow,
@@ -103,6 +109,141 @@ export interface PositionUploadResult {
   flagged: boolean;
   suspiciousReason: string | null;
   breach: ZoneBreach | null;
+}
+
+/**
+ * Proximity detection (Stage 5 add-on, condition 2).
+ *
+ * Run after a good reading is stored: if a Hunter and a free Shadow are inside
+ * the detection radius, both sides get one warning event. It never awards
+ * points, never raises a tag, and never sends a coordinate to the other player
+ * — the feed turns the exact distance into a band before anyone sees it.
+ */
+async function checkProximity(
+  ctx: RepoContext,
+  args: {
+    match: MatchRow;
+    players: PlayerRow[];
+    player: PlayerRow;
+    lat: number;
+    lng: number;
+    accuracyMetres: number | null;
+    nowMs: number;
+    clockMs: number;
+  },
+): Promise<void> {
+  const { match, players, player, nowMs, clockMs } = args;
+  const config = match.config;
+  if (!config.proximityDetectionEnabled) return;
+  if (match.pausedAt !== null) return;
+
+  // Large zones only: once the area is tight the warning would never stop.
+  const radius = currentRadius(match, players, clockMs);
+  if (radius < config.detectionMinZoneRadiusMetres) return;
+
+  const status = effectiveStatus(match, clockMs);
+  if (status !== "live") return;
+
+  const iAmHunter = player.role === "hunter" && player.status === "active";
+  const iAmShadow = player.role === "shadow" && player.status === "active";
+  if (!iAmHunter && !iAmShadow) return;
+
+  const candidates = players.filter((other) =>
+    iAmHunter
+      ? other.role === "shadow" &&
+        other.status === "active" &&
+        other.taggedAt === null
+      : other.role === "hunter" && other.status === "active",
+  );
+  if (candidates.length === 0) return;
+
+  const repos = getRepos();
+  const prior = await repos.events.listByMatchAndKind(
+    ctx,
+    match.id,
+    "detection",
+  );
+  const lastAlertFor = new Map<string, number>();
+  for (const event of prior) {
+    if (!event.refId) continue;
+    if (event.at > (lastAlertFor.get(event.refId) ?? 0)) {
+      lastAlertFor.set(event.refId, event.at);
+    }
+  }
+
+  const mine: DetectionSample = {
+    playerId: player.id,
+    role: player.role,
+    lat: args.lat,
+    lng: args.lng,
+    accuracyMetres: args.accuracyMetres,
+    recordedAtMs: nowMs,
+    inPlay: true,
+    suspicious: false,
+  };
+
+  let best: {
+    other: PlayerRow;
+    distanceMetres: number;
+    band: string;
+  } | null = null;
+  for (const other of candidates) {
+    const location = await repos.locations.latestByPlayer(
+      ctx,
+      match.id,
+      other.id,
+    );
+    if (!location) continue;
+    const theirs: DetectionSample = {
+      playerId: other.id,
+      role: other.role,
+      lat: location.lat,
+      lng: location.lng,
+      accuracyMetres: location.accuracyMetres,
+      recordedAtMs: location.recordedAtMs,
+      inPlay: true,
+      suspicious: location.suspicious ?? false,
+    };
+    const verdict = detectionVerdict({
+      nowMs,
+      status,
+      paused: false,
+      zoneRadiusMetres: radius,
+      hunter: iAmHunter ? mine : theirs,
+      shadow: iAmHunter ? theirs : mine,
+      lastAlertAtMs:
+        lastAlertFor.get(detectionPairKey(player.id, other.id)) ?? null,
+      config,
+    });
+    if (
+      !verdict.alert ||
+      verdict.distanceMetres === null ||
+      verdict.band === null
+    ) {
+      continue;
+    }
+    if (!best || verdict.distanceMetres < best.distanceMetres) {
+      best = {
+        other,
+        distanceMetres: verdict.distanceMetres,
+        band: verdict.band,
+      };
+    }
+  }
+  if (!best) return;
+
+  const hunterId = iAmHunter ? player.id : best.other.id;
+  const shadowId = iAmHunter ? best.other.id : player.id;
+  await repos.events.append(ctx, {
+    matchId: match.id,
+    at: nowMs,
+    kind: "detection",
+    playerId: hunterId,
+    actorId: shadowId,
+    refId: detectionPairKey(hunterId, shadowId),
+    distanceMetres: best.distanceMetres,
+    detail: best.band,
+  });
 }
 
 /**
@@ -216,6 +357,23 @@ export async function uploadPosition(
     };
   }
 
+  // ---- proximity detection ------------------------------------------------
+  // Only ever a warning: no points, no tag, and the other side is never sent
+  // a position — just a distance band.
+  const players = await repos.players.listByMatch(ctx, match.id);
+  if (status === "live" && match.pausedAt === null) {
+    await checkProximity(ctx, {
+      match,
+      players,
+      player,
+      lat: input.lat,
+      lng: input.lng,
+      accuracyMetres: input.accuracyMetres,
+      nowMs: now,
+      clockMs: clock,
+    });
+  }
+
   // ---- ping ---------------------------------------------------------------
   const window = pingWindow({
     startedAtMs: match.startedAt,
@@ -232,11 +390,7 @@ export async function uploadPosition(
   }
 
   // ---- out of zone --------------------------------------------------------
-  const radius = currentRadius(
-    match,
-    await repos.players.listByMatch(ctx, match.id),
-    clock,
-  );
+  const radius = currentRadius(match, players, clock);
   const distance = distanceMetres(input, match.zoneCentre);
   const outsideSince = player.outsideSince;
   const secondsOutside =
@@ -255,6 +409,36 @@ export async function uploadPosition(
     graceSecondsLeft: Math.ceil(state.graceSecondsLeft),
     drainTicksApplied: 0,
   };
+
+  // Setup: "return to the area" and nothing else. The clock is stopped, so
+  // there is no drain and nobody is eliminated during the countdown.
+  if (status === "setup") {
+    breach.status = state.outside ? "grace" : "inside";
+    if (!state.outside) {
+      if (outsideSince !== null) {
+        await repos.players.patchOutZoneState(ctx, player.id, {
+          outsideSince: null,
+          chargedDrainTicks: 0,
+          warnedAt: null,
+        });
+      }
+    } else {
+      await repos.players.patchOutZoneState(ctx, player.id, {
+        outsideSince: outsideSince ?? clock,
+        outsideSecondsTotal: Math.round(state.secondsOutside),
+        chargedDrainTicks: 0,
+        warnedAt: player.warnedAt ?? clock,
+      });
+    }
+    return {
+      stored: true,
+      reason: null,
+      nextAllowedAtMs: schedule.nextAllowedAtMs,
+      flagged: false,
+      suspiciousReason: null,
+      breach,
+    };
+  }
 
   if (!state.outside) {
     if (outsideSince !== null) {
@@ -297,6 +481,15 @@ export async function uploadPosition(
     warnedAt: player.warnedAt ?? clock,
     ...(eliminated ? { status: "eliminated" as PlayerStatus } : {}),
   });
+  if (eliminated && player.status !== "eliminated") {
+    // First time only: every later upload would report it again.
+    await repos.events.append(ctx, {
+      matchId: match.id,
+      at: clock,
+      kind: "elimination",
+      playerId: player.id,
+    });
+  }
   if (eliminated && player.mode !== match.config.eliminatedTurnsInto) {
     await repos.players.patch(ctx, player.id, {
       mode: match.config.eliminatedTurnsInto,
@@ -355,6 +548,7 @@ export interface MapView {
   status: MatchStatus;
   /** How the match finished, once it has. */
   endReason: MatchRow["endReason"];
+  winner: MatchRow["winner"];
   startedAt: number | null;
   endsAt: number | null;
   headStartEndsAt: number | null;
@@ -387,6 +581,19 @@ export interface MapView {
   };
   /** Only filled in for the organiser or an invigilator of the match. */
   staff: MapStaff | null;
+  /** The initial-separation countdown, and what this player's ring shows. */
+  setup: {
+    active: boolean;
+    startedAt: number | null;
+    endsAt: number | null;
+    extensionSeconds: number;
+    maxDurationSeconds: number;
+    separation: SeparationStatus | null;
+    /** Staff only: who is standing too close to whom. */
+    issues: SeparationIssue[];
+    /** Staff only: nobody has a usable reading yet. */
+    waiting: string[];
+  };
   me: {
     playerId: string | null;
     callSign: string | null;
@@ -584,11 +791,49 @@ export async function getMapView(
     staff = { playerCount: players.length, briefedCount, players: rows };
   }
 
+  let setupBlock: MapView["setup"] = {
+    active: false,
+    startedAt: match.setupStartedAt,
+    endsAt: match.setupEndsAt,
+    extensionSeconds: match.config.setupExtensionSeconds,
+    maxDurationSeconds: match.config.setupMaxDurationSeconds,
+    separation: null,
+    issues: [],
+    waiting: [],
+  };
+  if (status === "setup") {
+    const separation = meAsPlayer
+      ? await separationForPlayer(ctx, {
+          matchId: match.id,
+          playerId: meAsPlayer.id,
+          nowMs: now,
+        })
+      : null;
+    let issues: SeparationIssue[] = [];
+    let waiting: string[] = [];
+    if (invigilator !== null || isOrganiser) {
+      const check = await checkSeparation(ctx, {
+        matchId: match.id,
+        nowMs: now,
+      });
+      issues = check.violations;
+      waiting = check.waiting;
+    }
+    setupBlock = {
+      ...setupBlock,
+      active: true,
+      separation,
+      issues,
+      waiting,
+    };
+  }
+
   return {
     matchId: match.id,
     roomCode: match.roomCode,
     status,
     endReason: match.endReason,
+    winner: match.winner,
     startedAt: match.startedAt,
     endsAt: match.endsAt,
     headStartEndsAt:
@@ -628,6 +873,7 @@ export async function getMapView(
     },
     summary,
     staff,
+    setup: setupBlock,
     markers,
   };
 }

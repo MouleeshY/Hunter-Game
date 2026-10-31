@@ -100,6 +100,10 @@ export async function createMatch(
     organiserLat: number;
     organiserLng: number;
     invigilatorNames: string[];
+    /** Setup preset: what a captured Shadow is offered by default. */
+    defaultCaptureMode?: PlayerMode;
+    /** Setup preset: switch the proximity alerts off for this match. */
+    proximityDetection?: boolean;
   },
 ): Promise<CreatedMatch> {
   const repos = getRepos();
@@ -156,7 +160,13 @@ export async function createMatch(
   const match = await repos.matches.create(ctx, {
     roomCode,
     status: "lobby",
-    config: { ...config, matchDurationMinutes: input.matchDurationMinutes },
+    config: {
+      ...config,
+      matchDurationMinutes: input.matchDurationMinutes,
+      defaultCaptureMode: input.defaultCaptureMode ?? config.defaultCaptureMode,
+      proximityDetectionEnabled:
+        input.proximityDetection ?? config.proximityDetectionEnabled,
+    },
     createdByUserId: input.createdByUserId,
     zoneCentre: centre,
     organiserPosition: {
@@ -330,6 +340,9 @@ export interface LobbySetup {
   initialRadiusMetres: number;
   hunterCount: number;
   shadowCount: number;
+  setupDurationSeconds: number;
+  proximityDetectionEnabled: boolean;
+  detectionRadiusMetres: number;
 }
 
 /** Live status board for the organiser only (Stage 5, task 8). */
@@ -389,6 +402,8 @@ export interface LobbyView {
   startedAt: number | null;
   endsAt: number | null;
   headStartEndsAt: number | null;
+  /** When the setup countdown runs out, or null outside the setup phase. */
+  setupEndsAt: number | null;
   paused: boolean;
   pauseReason: string | null;
   /** Server clock, so countdowns never trust the phone's. */
@@ -469,6 +484,9 @@ export async function getLobby(
       initialRadiusMetres: match.initialRadiusMetres,
       hunterCount: split.hunterCount,
       shadowCount: split.shadowCount,
+      setupDurationSeconds: match.config.setupDurationSeconds,
+      proximityDetectionEnabled: match.config.proximityDetectionEnabled,
+      detectionRadiusMetres: match.config.detectionRadiusMetres,
     },
     staff,
     zone: {
@@ -505,6 +523,7 @@ export async function getLobby(
       match.startedAt === null
         ? null
         : match.startedAt + match.config.headStartMinutes * 60_000,
+    setupEndsAt: match.setupEndsAt,
     paused: match.pausedAt !== null,
     pauseReason: match.pauseReason,
     serverNowMs: now,
@@ -553,9 +572,11 @@ export async function setRosterLock(
 export interface StartedMatch {
   matchId: string;
   status: MatchStatus;
-  startedAt: number;
-  endsAt: number;
-  headStartEndsAt: number;
+  /** Null until the head start begins (setup runs first). */
+  startedAt: number | null;
+  endsAt: number | null;
+  headStartEndsAt: number | null;
+  setupEndsAt: number | null;
   hunters: number;
   shadows: number;
   initialRadiusMetres: number;
@@ -563,7 +584,9 @@ export interface StartedMatch {
 
 /**
  * Start the match: assign teams at random from the config ratio, lock the
- * roster, begin the five-minute head start and set the timer.
+ * roster and open the **setup countdown** (Stage 5 add-on), during which
+ * everyone walks to a starting position. The head start itself begins from
+ * `beginHeadStart` once the separation check passes.
  *
  * Everyone must have confirmed the rules briefing first. `force` is the
  * organiser's confirmed "start anyway" — the people still missing are recorded
@@ -624,22 +647,29 @@ export async function startMatch(
   }
 
   const endsAt = now + match.config.matchDurationMinutes * 60_000;
-  const headStartEndsAt = now + match.config.headStartMinutes * 60_000;
+  const setupEndsAt = now + match.config.setupDurationSeconds * 1000;
 
   await repos.matches.patch(ctx, match.id, {
-    status: "headstart",
-    startedAt: now,
-    endsAt,
+    status: "setup",
+    setupStartedAt: now,
+    setupEndsAt,
     rosterLocked: true,
     initialRadiusMetres,
+  });
+  await repos.events.append(ctx, {
+    matchId: match.id,
+    at: now,
+    kind: "phase",
+    detail: "Setup period: everyone to your starting position.",
   });
 
   return {
     matchId: match.id,
-    status: "headstart",
-    startedAt: now,
-    endsAt,
-    headStartEndsAt,
+    status: "setup",
+    startedAt: null,
+    endsAt: null,
+    headStartEndsAt: null,
+    setupEndsAt,
     hunters: assignments.filter((a) => a.role === "hunter").length,
     shadows: assignments.filter((a) => a.role === "shadow").length,
     initialRadiusMetres,
@@ -753,6 +783,15 @@ export {
   type EndResult,
 } from "./matchEnd";
 export { fileComplaint } from "./complaints";
+export {
+  beginHeadStart,
+  checkSeparation,
+  extendSetup,
+  separationForPlayer,
+  advanceToHeadStart,
+  type SeparationCheck,
+  type SeparationIssue,
+} from "./setup";
 export type { ConsoleHelpAlert, ConsoleView } from "./console";
 export {
   getConsoleView,

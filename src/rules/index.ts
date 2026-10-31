@@ -8,6 +8,8 @@
 
 export { RULES_CONFIG, type MatchConfig } from "./config";
 export { BRIEFING, type Briefing, type BriefingSection } from "./briefing";
+export * from "./separation";
+export * from "./detection";
 export * from "./types";
 export * from "./zone";
 export * from "./scoring";

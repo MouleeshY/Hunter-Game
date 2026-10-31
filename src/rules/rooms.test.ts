@@ -137,15 +137,23 @@ describe("start conditions", () => {
 });
 
 describe("match state transitions", () => {
-  it("walks lobby → locked → headstart → live → ended", () => {
+  it("walks lobby → locked → setup → headstart → live → ended", () => {
     expect(nextMatchStatus("lobby", "lock")).toBe("locked");
-    expect(nextMatchStatus("locked", "start")).toBe("headstart");
+    expect(nextMatchStatus("locked", "start")).toBe("setup");
+    expect(nextMatchStatus("setup", "extend")).toBe("setup");
+    expect(nextMatchStatus("setup", "start")).toBe("headstart");
     expect(nextMatchStatus("headstart", "start")).toBe("live");
     expect(nextMatchStatus("live", "end")).toBe("ended");
   });
 
-  it("lets the organiser start straight from the lobby", () => {
-    expect(nextMatchStatus("lobby", "start")).toBe("headstart");
+  it("lets the organiser start straight from the lobby, into setup", () => {
+    expect(nextMatchStatus("lobby", "start")).toBe("setup");
+  });
+
+  it("refuses to extend anything but a running setup", () => {
+    expect(nextMatchStatus("lobby", "extend")).toBeNull();
+    expect(nextMatchStatus("headstart", "extend")).toBeNull();
+    expect(nextMatchStatus("ended", "extend")).toBeNull();
   });
 
   it("lets the organiser unlock a locked roster", () => {
