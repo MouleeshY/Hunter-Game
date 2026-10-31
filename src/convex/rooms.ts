@@ -17,6 +17,11 @@ import {
   setRosterLock,
   startMatch,
 } from "../server/index";
+import {
+  endMatchEarly,
+  pauseMatch,
+  resumeMatch,
+} from "../server/console";
 
 async function requireUserId(
   ctx: Parameters<typeof getAuthUserId>[0],
@@ -104,6 +109,44 @@ export const startRoom = mutation({
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx);
     return await startMatch(ctx, { matchId: args.matchId, userId });
+  },
+});
+
+/** Organiser's "End match": the same settlement as a natural end. */
+export const endRoom = mutation({
+  args: { matchId: v.id("matches"), reason: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    return await endMatchEarly(ctx, {
+      matchId: args.matchId,
+      userId,
+      reason: args.reason,
+    });
+  },
+});
+
+/** Emergency freeze: clock, zone shrink and drain all stop until resumed. */
+export const pauseRoom = mutation({
+  args: { matchId: v.id("matches"), reason: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    return await pauseMatch(ctx, {
+      matchId: args.matchId,
+      userId,
+      reason: args.reason ?? "Paused by the organiser.",
+    });
+  },
+});
+
+export const resumeRoom = mutation({
+  args: { matchId: v.id("matches"), reason: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    return await resumeMatch(ctx, {
+      matchId: args.matchId,
+      userId,
+      reason: args.reason ?? "Resumed by the organiser.",
+    });
   },
 });
 

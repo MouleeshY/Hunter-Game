@@ -39,7 +39,6 @@ export type LeaderboardId = string;
 export function makeId(timestampMs: number, counter: number): string {
   const base32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
   let t = timestampMs;
-  const time = "";
   // 48-bit timestamp encoded in 10 chars
   const tChars: string[] = [];
   for (let i = 0; i > -10; i -= 1) {
@@ -47,7 +46,7 @@ export function makeId(timestampMs: number, counter: number): string {
     t >>>= 5;
   }
   const rand: string[] = [];
-  let r = (timestampMs * 1000 + counter) >>> 0;
+  const r = (timestampMs * 1000 + counter) >>> 0;
   for (let i = 0; i < 16; i += 1) {
     rand.push(base32[(r >>> (i * 5)) & 31]);
   }

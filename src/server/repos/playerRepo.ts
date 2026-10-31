@@ -25,6 +25,8 @@ export interface PlayerRow {
   joinedAt: number;
   taggedAt: number | null;
   taggedById: string | null;
+  /** Set once the tagged player has picked Spectator / Hunters / Helper. */
+  captureChosenAt: number | null;
   outsideSince: number | null;
   outsideSecondsTotal: number;
   chargedDrainTicks: number;
@@ -69,6 +71,7 @@ export interface PlayerRepository {
       points?: number;
       taggedAt?: number | null;
       taggedById?: string | null;
+      captureChosenAt?: number | null;
     },
   ): Promise<void>;
   /** Out-of-zone state written by the position-upload path. */

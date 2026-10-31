@@ -130,6 +130,31 @@ export function matchEndsAt(startedAtMs: number, config: MatchConfig): number {
   return startedAtMs + config.matchDurationMinutes * 60_000;
 }
 
+/* ------------------------------------------------------------------ *
+ * Pause / resume
+ * ------------------------------------------------------------------ */
+
+/**
+ * The clock the rules run on while the match may be paused.
+ *
+ * `pausedAtMs` freezes the clock where it stood; `pausedTotalMs` is the sum of
+ * every completed pause, so time spent paused never counts against the match
+ * timer, the zone shrink schedule, the ping interval or the drain.
+ */
+export function matchClockNow(args: {
+  nowMs: number;
+  pausedAtMs: number | null;
+  pausedTotalMs: number;
+}): number {
+  if (args.pausedAtMs !== null) return args.pausedAtMs;
+  return args.nowMs - Math.max(0, args.pausedTotalMs);
+}
+
+/** A match may only be frozen between the start and the whistle. */
+export function canPause(status: MatchStatus): boolean {
+  return status === "headstart" || status === "live";
+}
+
 /** End of the organiser's event window, for reference in the UI. */
 export function eventWindowEndsAt(
   startedAtMs: number,

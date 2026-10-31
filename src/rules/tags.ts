@@ -13,6 +13,7 @@ export type TagRejectionCode =
   | "target_already_tagged"
   | "target_not_in_play"
   | "missing_location"
+  | "flagged_location"
   | "stale_location"
   | "too_far";
 
@@ -81,6 +82,12 @@ export function validateTagScan(input: {
 
   if (!scannerLocation || !targetLocation) {
     return { ok: false, code: "missing_location" };
+  }
+
+  // A reading the spoof check flagged never counts for a tag, whichever side
+  // it belongs to. Invigilators can still force a tag themselves.
+  if (scannerLocation.suspicious === true || targetLocation.suspicious === true) {
+    return { ok: false, code: "flagged_location" };
   }
 
   // Both readings must be recent: the Hunter's phone sends its GPS reading with

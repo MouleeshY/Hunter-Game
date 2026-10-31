@@ -13,5 +13,6 @@ export * from "./scoring";
 export * from "./match";
 export * from "./tags";
 export * from "./rooms";
+export * from "./complaints";
 export * from "./teams";
 export * from "./visibility";

@@ -27,8 +27,10 @@ export function usePositionUpload(args: {
   fix: GpsFix | null;
   gpsStatus: GpsStatus;
   config: MatchConfig;
+  /** Bump this to force one upload right now (opening the QR screen). */
+  pulse?: number;
 }): UploadState {
-  const { matchId, enabled, fix, gpsStatus, config } = args;
+  const { matchId, enabled, fix, gpsStatus, config, pulse = 0 } = args;
   const upload = useMutation(api.matches.uploadPosition);
   const [state, setState] = useState<UploadState>({
     lastSentAt: null,
@@ -94,7 +96,7 @@ export function usePositionUpload(args: {
       cancelled = true;
       clearInterval(id);
     };
-  }, [matchId, enabled, gpsStatus, upload, config.uploadIntervalSeconds]);
+  }, [matchId, enabled, gpsStatus, upload, config.uploadIntervalSeconds, pulse]);
 
   return state;
 }

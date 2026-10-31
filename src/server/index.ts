@@ -25,6 +25,8 @@ import {
   type DisplayNameMode,
   type MatchConfig,
   type MatchStatus,
+  type PlayerMode,
+  type PlayerStatus,
   type Role,
 } from "../rules";
 import { getRepos } from "./providers";
@@ -320,10 +322,21 @@ export interface LobbyView {
     playerId: string | null;
     callSign: string | null;
     displayNameMode: DisplayNameMode | null;
+    role: Role | null;
+    mode: PlayerMode | null;
+    status: PlayerStatus | null;
+    /** The player's own plain QR for this match. Never shown to anyone else. */
+    qrToken: string | null;
+    /** Set once a captured Shadow has picked Spectator / Hunters / Helper. */
+    captureChosenAt: number | null;
   };
   startedAt: number | null;
   endsAt: number | null;
   headStartEndsAt: number | null;
+  paused: boolean;
+  pauseReason: string | null;
+  /** Server clock, so countdowns never trust the phone's. */
+  serverNowMs: number;
 }
 
 export async function getLobby(
@@ -379,6 +392,11 @@ export async function getLobby(
       playerId: me?.id ?? null,
       callSign: me?.callSign ?? null,
       displayNameMode: me?.displayNameMode ?? null,
+      role: me?.role ?? null,
+      mode: me?.mode ?? null,
+      status: me?.status ?? null,
+      qrToken: me?.qrToken ?? null,
+      captureChosenAt: me?.captureChosenAt ?? null,
     },
     startedAt: match.startedAt,
     endsAt: match.endsAt,
@@ -386,6 +404,9 @@ export async function getLobby(
       match.startedAt === null
         ? null
         : match.startedAt + match.config.headStartMinutes * 60_000,
+    paused: match.pausedAt !== null,
+    pauseReason: match.pauseReason,
+    serverNowMs: now,
   };
 }
 
@@ -558,8 +579,30 @@ export async function claimInvite(
 export {
   uploadPosition,
   getMapView,
+  purgeExpiredPositions,
   type MapMarker,
   type MapView,
   type PositionUploadResult,
   type ZoneBreach,
 } from "./positionService";
+
+export { runMatchTick, type TickResult } from "./scheduler";
+export {
+  endMatch,
+  activeShadows,
+  isEligibleHunter,
+  type EndResult,
+} from "./matchEnd";
+export { fileComplaint } from "./complaints";
+export {
+  getConsoleView,
+  dismissComplaint,
+  forceTag,
+  removePlayer,
+  warnPlayer,
+  setPlayerMode,
+  pauseMatch,
+  resumeMatch,
+  endMatchEarly,
+  statusAfterCapture,
+} from "./console";

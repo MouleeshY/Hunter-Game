@@ -25,12 +25,16 @@ export interface ComplaintRepository {
       accusedId: string;
       note: string | null;
       configComplaintResponseMinutes: number;
+      /** Server clock at filing; injected so tests stay deterministic. */
+      nowMs?: number;
     },
   ): Promise<ComplaintRow>;
   listOpenByMatch(
     ctx: RepoContext,
     matchId: string,
   ): Promise<ComplaintRow[]>;
+  /** Everything the console needs, resolved and overdue included. */
+  listByMatch(ctx: RepoContext, matchId: string): Promise<ComplaintRow[]>;
   patch(
     ctx: RepoContext,
     id: string,

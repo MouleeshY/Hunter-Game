@@ -11,9 +11,17 @@
 /** [RULE] Two teams, Hunters and Shadows, assigned at random at start. */
 export type Role = "hunter" | "shadow";
 
-/** What a tagged Shadow does for the rest of the match. Set before the match,
- *  changeable by the organiser or an invigilator at any time. */
-export type PlayerMode = "spectator" | "hunter";
+/**
+ * What a tagged Shadow does for the rest of the match. Set before the match,
+ * changeable by the organiser or an invigilator at any time, and re-chosen by
+ * the player themselves at the moment of capture.
+ *
+ * - `spectator` stops playing.
+ * - `hunter` joins the Hunters and may land tags (they score nothing).
+ * - `helper` sticks with a Hunter for fun and earns no points; their help is
+ *   recorded as the capture's `assistedBy`.
+ */
+export type PlayerMode = "spectator" | "hunter" | "helper";
 
 /** Lifecycle state of a player inside a match. */
 export type PlayerStatus =
@@ -53,6 +61,9 @@ export interface Location {
 export interface LocationSnapshot extends Location {
   accuracyMetres: number | null;
   pingIndex: number;
+  /** Spoof check: an impossible jump or accuracy. A flagged reading never
+   *  counts for a tag. */
+  suspicious?: boolean;
 }
 
 // ---- Minimal data a rule needs ---------------------------------------------
@@ -72,6 +83,10 @@ export interface MatchSnapshot {
   startedAtMs: number | null;
   endsAtMs: number | null;
   config: MatchConfig;
+  /** Wall-clock moment the match was frozen, or null while running. */
+  pausedAtMs?: number | null;
+  /** Total milliseconds already spent paused, so the clock can skip them. */
+  pausedTotalMs?: number;
 }
 
 export type MatchConfig = import("./config").MatchConfig;

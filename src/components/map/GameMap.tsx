@@ -17,6 +17,8 @@ export interface MapMarkerInput {
   label: string;
   ageMs: number;
   accuracyMetres: number | null;
+  /** Console only: override the colour with a hex, e.g. by team and status. */
+  tone?: string;
 }
 
 interface GameMapProps {
@@ -78,6 +80,7 @@ function markerCollection(markers: MapMarkerInput[]): SourceData {
         kind: marker.kind,
         label: marker.label,
         ageMs: marker.ageMs,
+        ...(marker.tone ? { tone: marker.tone } : {}),
       },
       geometry: { type: "Point", coordinates: [marker.lng, marker.lat] },
     })),
@@ -181,13 +184,18 @@ export function GameMap({
         paint: {
           "circle-radius": ["match", ["get", "kind"], "ping", 7, "delayed", 5, 6],
           "circle-color": [
-            "match",
-            ["get", "kind"],
-            "ping",
-            "#b8865b",
-            "delayed",
-            "#8a867e",
-            "#1c1b19",
+            "case",
+            ["has", "tone"],
+            ["get", "tone"],
+            [
+              "match",
+              ["get", "kind"],
+              "ping",
+              "#b8865b",
+              "delayed",
+              "#8a867e",
+              "#1c1b19",
+            ],
           ],
           "circle-stroke-color": "#f6f2ea",
           "circle-stroke-width": 1.5,

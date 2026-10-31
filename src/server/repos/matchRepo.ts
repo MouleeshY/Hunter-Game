@@ -25,6 +25,13 @@ export interface MatchRow {
   zoneCentre: LatLng;
   /** Most recent 3-minute ping; Hunters only see positions up to this. */
   lastPingAt: number | null;
+  /** Frozen moment while the match is paused, or null while it runs. */
+  pausedAt: number | null;
+  /** Total milliseconds spent in finished pauses. */
+  pausedTotalMs: number;
+  pauseReason: string | null;
+  /** Last minute of Shadow alive points already paid (`-1` before the first). */
+  aliveUpToMinute: number;
   /** Where the organiser stood at setup; used for re-rolls, never published. */
   organiserPosition: LatLng | null;
   initialRadiusMetres: number;
@@ -40,6 +47,8 @@ export interface MatchRepository {
     ctx: RepoContext,
     endedBeforeMs: number,
   ): Promise<MatchRow[]>;
+  /** Matches still on the clock (head start or live), for the minute tick. */
+  listRunning(ctx: RepoContext): Promise<MatchRow[]>;
   create(
     ctx: RepoContext,
     input: {
@@ -61,6 +70,10 @@ export interface MatchRepository {
       startedAt?: number | null;
       endsAt?: number | null;
       lastPingAt?: number | null;
+      pausedAt?: number | null;
+      pausedTotalMs?: number;
+      pauseReason?: string | null;
+      aliveUpToMinute?: number;
       winner?: "hunters" | "shadows" | null;
       endedAt?: number | null;
       rosterLocked?: boolean;
@@ -77,6 +90,8 @@ export function snapshotOf(row: MatchRow): MatchSnapshot {
     startedAtMs: row.startedAt,
     endsAtMs: row.endsAt,
     config: row.config,
+    pausedAtMs: row.pausedAt,
+    pausedTotalMs: row.pausedTotalMs,
   };
 }
 

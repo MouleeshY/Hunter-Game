@@ -50,7 +50,7 @@ export async function award(
   args: {
     matchId: string;
     playerId: string;
-    kind: Exclude<ScoreKind, "shadow_alive">;
+    kind: ScoreKind;
     points: number;
     at: number;
     source?: "system" | "invigilator";

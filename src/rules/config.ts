@@ -84,10 +84,25 @@ export interface MatchConfig {
   tagProximityMetres: number;
   /** [RULE] A scan is rejected if either position is older than 30 seconds. */
   tagFreshnessSeconds: number;
+  /**
+   * [TUNED] How long after the incident a Hunter may still file a complaint.
+   * The rules only say a complaint exists; 5 minutes keeps the report close to
+   * what actually happened. Ask before treating it as final.
+   */
+  complaintFilingWindowMinutes: number;
   /** [TUNED] How long an invigilator has to respond to a complaint. */
   complaintResponseMinutes: number;
+  /**
+   * [TUNED] A Hunter may file at most this many complaints inside
+   * `complaintRateWindowMinutes`. Stacks on top of the one-open-per-pair rule.
+   */
+  complaintRateLimit: number;
+  complaintRateWindowMinutes: number;
   /** [RULE] 2–3 invigilators per match. */
   invigilatorCount: { min: number; max: number };
+
+  /** [TUNED] How often the server awards one minute of Shadow alive points. */
+  aliveTickMinutes: number;
 
   // ---- Roster --------------------------------------------------------------
 
@@ -160,8 +175,12 @@ export const RULES_CONFIG: MatchConfig = {
 
   tagProximityMetres: 40,
   tagFreshnessSeconds: 30,
+  complaintFilingWindowMinutes: 5,
   complaintResponseMinutes: 10,
+  complaintRateLimit: 3,
+  complaintRateWindowMinutes: 15,
   invigilatorCount: { min: 2, max: 3 },
+  aliveTickMinutes: 1,
 
   minPlayers: 4,
   softCapPlayers: 40,

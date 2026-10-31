@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { GameMap, type MapMarkerInput } from "@/components/map/GameMap";
+import { QrCard } from "@/components/match/QrCard";
+import { Scanner } from "@/components/match/Scanner";
+import { ComplaintForm } from "@/components/match/ComplaintForm";
+import { CaptureChoice } from "@/components/match/CaptureChoice";
 import { useGeolocation, useWakeLock } from "@/hooks/useGeolocation";
 import { usePositionUpload } from "@/hooks/usePositionUpload";
 import { RULES_CONFIG } from "@/rules/config";
@@ -38,6 +42,26 @@ const GPS_CLASS: Record<string, string> = {
   unsupported: "bg-destructive/10 text-destructive",
 };
 
+/** What the server said about a scan, in the words a Hunter needs. */
+const SCAN_COPY: Record<string, string> = {
+  too_far: "Too far apart to tag — get closer and try again.",
+  stale_location:
+    "Location too old — one of you has not updated in the last 30 seconds.",
+  flagged_location:
+    "One of the two positions was flagged as impossible, so the tag does not count.",
+  missing_location: "No recent position for one of you. Wait for a fix.",
+  target_already_tagged: "Already tagged — that Shadow is out of the game.",
+  target_not_in_play: "That Shadow is no longer in play.",
+  target_not_shadow: "That code is not a Shadow.",
+  self_scan: "That is your own code.",
+  unknown_target: "That code is not in this match.",
+  scanner_not_hunter: "Only Hunters can scan codes.",
+  scanner_not_active: "You are not in play.",
+  match_not_active: "The match is not running right now.",
+};
+
+type Panel = "none" | "qr" | "scan" | "complaint";
+
 export default function Match() {
   const { roomCode = "" } = useParams();
   const lobby = useQuery(
@@ -49,17 +73,33 @@ export default function Match() {
     api.map.view,
     matchId ? { matchId: matchId as Id<"matches"> } : "skip",
   );
+  const scan = useMutation(api.matches.submitTagScan);
 
-  const gps = useGeolocation(RULES_CONFIG);
+  // The match's own config snapshot — never the default RULES_CONFIG.
+  const config = view?.config ?? RULES_CONFIG;
+
+  const gps = useGeolocation(config);
   const [simulate, setSimulate] = useState(false);
   const [simElapsed, setSimElapsed] = useState(0);
-  const [now, setNow] = useState(() => Date.now());
   const devMode = simulatedGpsAvailable();
 
+  // Countdowns run on the server clock: the offset is measured each time new
+  // data arrives, so a skewed phone clock cannot drift the timers.
+  const [clockOffset, setClockOffset] = useState(0);
+  const serverNow = view?.serverNowMs ?? null;
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
+    if (serverNow !== null) setClockOffset(serverNow - Date.now());
+  }, [serverNow]);
+
+  const [, setSecond] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setSecond((value) => value + 1), 1000);
     return () => clearInterval(id);
   }, []);
+
+  const paused = view?.paused ?? false;
+  const now =
+    serverNow !== null && paused ? serverNow : Date.now() + clockOffset;
 
   useEffect(() => {
     if (!simulate) return;
@@ -83,12 +123,20 @@ export default function Match() {
 
   useWakeLock(live);
 
+  // Opening the QR screen bumps this so a fresh reading goes up immediately.
+  const [uploadPulse, setUploadPulse] = useState(0);
+  const [panel, setPanel] = useState<Panel>("none");
+  const [scanResult, setScanResult] = useState<
+    { ok: boolean; message: string } | null
+  >(null);
+
   const uploadState = usePositionUpload({
     matchId,
     enabled: live && fix !== null && (gpsStatus === "live" || gpsStatus === "weak"),
     fix,
     gpsStatus,
-    config: RULES_CONFIG,
+    config,
+    pulse: uploadPulse,
   });
 
   // Ping pulse: fire when the server's last ping advances.
@@ -102,6 +150,44 @@ export default function Match() {
     }
     previousPing.current = lastPing;
   }, [lastPing]);
+
+  const submitScan = async (token: string) => {
+    if (!matchId || !fix) {
+      setScanResult({
+        ok: false,
+        message: "No GPS fix yet — wait for a lock, then try again.",
+      });
+      return;
+    }
+    try {
+      const result = await scan({
+        matchId: matchId as Id<"matches">,
+        scannedToken: token,
+        scannerLat: fix.lat,
+        scannerLng: fix.lng,
+        scannerAccuracyMetres: fix.accuracy,
+      });
+      if (result.ok) {
+        setScanResult({
+          ok: true,
+          message: `Tagged ${Math.round(result.distanceMetres ?? 0)} m away · +${result.points} points${
+            result.matchEnded ? " · match over" : ""
+          }`,
+        });
+        setPanel("none");
+      } else {
+        setScanResult({
+          ok: false,
+          message: SCAN_COPY[result.code] ?? "That scan was refused.",
+        });
+      }
+    } catch (cause) {
+      setScanResult({
+        ok: false,
+        message: cause instanceof Error ? cause.message : "Scan failed.",
+      });
+    }
+  };
 
   if (!roomCode) {
     return (
@@ -135,6 +221,17 @@ export default function Match() {
     );
   }
 
+  const me = lobby.me;
+  const iAmActiveShadow = me.role === "shadow" && me.status === "active";
+  const iCanScan =
+    (me.role === "hunter" && me.status === "active") ||
+    (me.mode === "hunter" && me.status === "tagged");
+  const iCanComplain = me.role === "hunter" && me.status === "active";
+  const needsCaptureChoice =
+    me.role === "shadow" &&
+    me.status === "tagged" &&
+    me.captureChosenAt === null;
+
   const needPermission =
     !simulate && (gps.status === "idle" || gps.status === "requesting");
   const breach = uploadState.breach ?? view.me.breach;
@@ -142,11 +239,11 @@ export default function Match() {
     ? breach.status === "inside"
       ? 0
       : breach.secondsOutside +
-        (uploadState.lastSentAt ? (now - uploadState.lastSentAt) / 1000 : 0)
+        (uploadState.lastSentAt ? Math.max(0, (now - uploadState.lastSentAt) / 1000) : 0)
     : 0;
   const graceLeft = Math.max(
     0,
-    Math.ceil(RULES_CONFIG.graceSeconds - secondsOutsideNow),
+    Math.ceil(config.graceSeconds - secondsOutsideNow),
   );
 
   const markers: MapMarkerInput[] = view.markers.map((marker) => ({
@@ -168,7 +265,7 @@ export default function Match() {
         <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
-              Shadow Hunt · room {view.roomCode}
+              Shadow Hunt · room {view.roomCode} · {me.callSign ?? "staff"}
             </p>
             <h1 className="mt-2 font-display text-3xl tracking-tight">
               {view.status === "headstart"
@@ -192,6 +289,18 @@ export default function Match() {
           </div>
         </header>
 
+        {paused && (
+          <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
+            <p className="text-[11px] uppercase tracking-[0.2em]">
+              Match paused
+            </p>
+            <p className="mt-1 text-[14px]">
+              {view.pauseReason ??
+                "The clock, the zone and the drain are frozen for everyone."}
+            </p>
+          </div>
+        )}
+
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="rounded-xl border border-hairline p-4">
             <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
@@ -206,7 +315,7 @@ export default function Match() {
             </p>
             <p className="mt-1 text-[11px] text-muted-foreground">
               Radius {Math.round(view.zone.radiusMetres)} m ·{" "}
-              {RULES_CONFIG.zoneShrinkIntervalMinutes} min steps
+              {config.zoneShrinkIntervalMinutes} min steps
             </p>
           </div>
           <div className="rounded-xl border border-hairline p-4">
@@ -221,7 +330,7 @@ export default function Match() {
               )}
             </p>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              {view.me.role === "hunter"
+              {me.role === "hunter"
                 ? "Shadows show as ping ghosts"
                 : view.me.isInvigilator
                   ? "Invigilator view: everyone live"
@@ -240,6 +349,106 @@ export default function Match() {
           />
         </div>
 
+        {/* ---- Capture choice ------------------------------------------------ */}
+        {live && needsCaptureChoice && panel === "none" && (
+          <div className="mt-4">
+            <CaptureChoice
+              matchId={matchId!}
+              defaultMode={me.mode ?? "spectator"}
+              onChosen={() => setScanResult(null)}
+            />
+          </div>
+        )}
+
+        {/* ---- Play actions -------------------------------------------------- */}
+        {live && panel === "none" && (
+          <div className="mt-4 flex flex-wrap gap-3">
+            {iAmActiveShadow && (
+              <Button
+                size="lg"
+                className="h-11 uppercase tracking-[0.18em]"
+                onClick={() => setPanel("qr")}
+              >
+                I'm caught — show my code
+              </Button>
+            )}
+            {iCanScan && (
+              <Button
+                size="lg"
+                variant="outline"
+                className="h-11 uppercase tracking-[0.18em]"
+                onClick={() => {
+                  setScanResult(null);
+                  setPanel("scan");
+                }}
+              >
+                Scan a code
+              </Button>
+            )}
+            {iCanComplain && (
+              <Button
+                size="lg"
+                variant="outline"
+                className="h-11 uppercase tracking-[0.18em]"
+                onClick={() => setPanel("complaint")}
+              >
+                Shadow won't show code
+              </Button>
+            )}
+          </div>
+        )}
+
+        {scanResult && panel === "none" && (
+          <p
+            className={`mt-3 text-[13px] ${
+              scanResult.ok ? "text-foreground" : "text-destructive"
+            }`}
+          >
+            {scanResult.ok ? "✓ " : "✕ "}
+            {scanResult.message}
+          </p>
+        )}
+
+        {panel === "qr" && me.qrToken && (
+          <div className="mt-4">
+            <QrCard
+              token={me.qrToken}
+              callSign={me.callSign}
+              proximityMetres={config.tagProximityMetres}
+              devMode={devMode}
+              onOpened={() => setUploadPulse((value) => value + 1)}
+              onClose={() => setPanel("none")}
+            />
+          </div>
+        )}
+
+        {panel === "scan" && (
+          <div className="mt-4">
+            <Scanner
+              devMode={devMode}
+              onScan={(token) => void submitScan(token)}
+              onClose={() => setPanel("none")}
+            />
+          </div>
+        )}
+
+        {panel === "complaint" && matchId && (
+          <div className="mt-4">
+            <ComplaintForm
+              matchId={matchId}
+              onClose={() => setPanel("none")}
+              onFiled={() => {
+                setPanel("none");
+                setScanResult({
+                  ok: true,
+                  message:
+                    "Complaint filed. Every invigilator has been notified.",
+                });
+              }}
+            />
+          </div>
+        )}
+
         {breach && breach.status !== "inside" && (
           <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
             <p className="text-[11px] uppercase tracking-[0.2em]">
@@ -249,7 +458,7 @@ export default function Match() {
               {breach.status === "grace"
                 ? `Get back inside. Points start draining in ${graceLeft}s.`
                 : breach.status === "draining"
-                  ? `Draining ${RULES_CONFIG.drainPointsPerTick} points every ${RULES_CONFIG.drainIntervalSeconds}s. Out for ${Math.round(secondsOutsideNow)}s.`
+                  ? `Draining ${config.drainPointsPerTick} points every ${config.drainIntervalSeconds}s. Out for ${Math.round(secondsOutsideNow)}s.`
                   : "Eliminated: you spent too long outside the zone."}
             </p>
           </div>
@@ -288,17 +497,17 @@ export default function Match() {
             </p>
             <p className="mt-3 text-[14px]">
               Shadow Hunt needs your location while a match is live so teammates
-              and invigilators can see you, and so Hunters get the 3-minute ping.
+              and invigilators can see you, and so Hunters get the{" "}
+              {config.pingIntervalMinutes}-minute ping.
             </p>
             <ul className="mt-3 grid gap-1 text-[12px] text-muted-foreground">
               <li>· Positions are never public — only your match can see them.</li>
               <li>
-                · Position history is deleted{" "}
-                {RULES_CONFIG.positionRetentionHours} hours after the match ends.
-                Scores are kept.
+                · Position history is deleted {config.positionRetentionHours}{" "}
+                hours after the match ends. Scores are kept.
               </li>
               <li>
-                · Readings worse than {RULES_CONFIG.maxGpsAccuracyMetres} m are
+                · Readings worse than {config.maxGpsAccuracyMetres} m are
                 ignored.
               </li>
             </ul>
@@ -339,7 +548,7 @@ export default function Match() {
         {view.status === "ended" && (
           <p className="mt-4 text-[13px] text-muted-foreground">
             Match ended. Position history is deleted{" "}
-            {RULES_CONFIG.positionRetentionHours} hours after the end.
+            {config.positionRetentionHours} hours after the end.
           </p>
         )}
       </main>

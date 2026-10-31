@@ -76,6 +76,19 @@ const schema = defineSchema(
       ),
       /** Most recent 3-minute ping; Hunters only see positions up to this. */
       lastPingAt: v.optional(v.number()),
+      /**
+       * Emergency freeze. While `pausedAt` is set the whole match clock stops:
+       * timer, zone shrink, pings and the out-of-zone drain. `pausedTotalMs`
+       * keeps the elapsed time of every finished pause so the clock can skip it.
+       */
+      pausedAt: v.optional(v.number()),
+      pausedTotalMs: v.optional(v.number()),
+      pauseReason: v.optional(v.string()),
+      /**
+       * Bookkeeping for the minute tick: the last minute of Shadow alive
+       * points already written to the ledger, so a minute is never paid twice.
+       */
+      aliveUpToMinute: v.optional(v.number()),
       winner: v.optional(v.union(v.literal("hunters"), v.literal("shadows"))),
       endedAt: v.optional(v.number()),
     })
@@ -111,6 +124,8 @@ const schema = defineSchema(
       joinedAt: v.number(),
       taggedAt: v.optional(v.number()),
       taggedById: v.optional(v.id("players")),
+      /** Set once the tagged player has picked Spectator / Hunters / Helper. */
+      captureChosenAt: v.optional(v.number()),
       zoneBreach: v.object({
         outsideSince: v.optional(v.number()),
         outsideSecondsTotal: v.optional(v.number()),
@@ -155,6 +170,11 @@ const schema = defineSchema(
       distanceMetres: v.optional(v.number()),
       /** Converted Hunter who helped with this capture. Recorded at capture. */
       assistedById: v.optional(v.id("players")),
+      /** The mode on offer at the moment of capture — the player's default. */
+      captureMode: v.optional(playerModeValidator),
+      /** True when an invigilator forced the tag instead of a real scan. */
+      forced: v.optional(v.boolean()),
+      forcedBy: v.optional(v.id("users")),
       scoredPoints: v.number(),
       at: v.number(),
     })
@@ -245,6 +265,23 @@ const schema = defineSchema(
     })
       .index("by_match_player", ["matchId", "playerId"])
       .index("by_match_points", ["matchId", "totalPoints"]),
+
+    /* ---------------------------------------------------------------- *
+     * Audit log — append-only. Every invigilator and organiser action:
+     * who, when, why. Never edited, never deleted.
+     * ---------------------------------------------------------------- */
+    auditLog: defineTable({
+      matchId: v.id("matches"),
+      at: v.number(),
+      actorUserId: v.id("users"),
+      actorName: v.string(),
+      action: v.string(),
+      targetType: v.string(),
+      targetId: v.optional(v.string()),
+      targetLabel: v.optional(v.string()),
+      reason: v.optional(v.string()),
+      detail: v.optional(v.string()),
+    }).index("by_match_time", ["matchId", "at"]),
   },
   {
     schemaValidation: false,

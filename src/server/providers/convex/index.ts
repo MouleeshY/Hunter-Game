@@ -32,6 +32,7 @@ import type {
   LeaderboardRepository,
   LeaderboardRow,
 } from "../../repos/leaderboardRepo";
+import type { AuditRepository, AuditRow } from "../../repos/auditRepo";
 
 // ---- opaque context --------------------------------------------------------
 
@@ -67,6 +68,10 @@ function matchRow(m: Doc<"matches">): MatchRow {
     createdByUserId: m.createdBy ?? null,
     zoneCentre: { lat: m.zone.centreLat, lng: m.zone.centreLng },
     lastPingAt: m.lastPingAt ?? null,
+    pausedAt: m.pausedAt ?? null,
+    pausedTotalMs: m.pausedTotalMs ?? 0,
+    pauseReason: m.pauseReason ?? null,
+    aliveUpToMinute: m.aliveUpToMinute ?? -1,
     organiserPosition: m.organiserPosition ?? null,
     initialRadiusMetres: m.zone.initialRadiusMetres,
     winner: m.winner ?? null,
@@ -90,6 +95,7 @@ function playerRow(p: Doc<"players">): PlayerRow {
     joinedAt: p.joinedAt,
     taggedAt: p.taggedAt ?? null,
     taggedById: p.taggedById ?? null,
+    captureChosenAt: p.captureChosenAt ?? null,
     outsideSince: p.zoneBreach.outsideSince ?? null,
     outsideSecondsTotal: p.zoneBreach.outsideSecondsTotal ?? 0,
     chargedDrainTicks: p.zoneBreach.chargedDrainTicks,
@@ -192,6 +198,20 @@ export const matchRepo: MatchRepository = {
       .map(matchRow);
   },
 
+  listRunning: async (ctx) => {
+    const [headstart, live] = await Promise.all([
+      reader(ctx)
+        .query("matches")
+        .withIndex("by_status", (q) => q.eq("status", "headstart"))
+        .collect(),
+      reader(ctx)
+        .query("matches")
+        .withIndex("by_status", (q) => q.eq("status", "live"))
+        .collect(),
+    ]);
+    return [...headstart, ...live].map(matchRow);
+  },
+
   create: async (ctx, input) => {
     const db = writer(ctx);
     const createdAt = Date.now();
@@ -231,6 +251,10 @@ export const matchRepo: MatchRepository = {
       startedAt?: number;
       endsAt?: number;
       lastPingAt?: number;
+      pausedAt?: number;
+      pausedTotalMs?: number;
+      pauseReason?: string;
+      aliveUpToMinute?: number;
       winner?: "hunters" | "shadows";
       endedAt?: number;
       rosterLocked?: boolean;
@@ -255,6 +279,18 @@ export const matchRepo: MatchRepository = {
     }
     if (patch.rosterLocked !== undefined) {
       next.rosterLocked = patch.rosterLocked;
+    }
+    if (patch.pausedAt !== undefined) {
+      next.pausedAt = patch.pausedAt ?? undefined;
+    }
+    if (patch.pausedTotalMs !== undefined && patch.pausedTotalMs !== null) {
+      next.pausedTotalMs = patch.pausedTotalMs;
+    }
+    if (patch.pauseReason !== undefined) {
+      next.pauseReason = patch.pauseReason ?? undefined;
+    }
+    if (patch.aliveUpToMinute !== undefined && patch.aliveUpToMinute !== null) {
+      next.aliveUpToMinute = patch.aliveUpToMinute;
     }
     if (patch.zoneCentre !== undefined || patch.initialRadiusMetres !== undefined) {
       next.zone = {
@@ -338,6 +374,7 @@ export const playerRepo: PlayerRepository = {
       points?: number;
       taggedAt?: number;
       taggedById?: Id<"players">;
+      captureChosenAt?: number;
     } = {};
 
     if (patch.role !== undefined) next.role = patch.role;
@@ -349,6 +386,9 @@ export const playerRepo: PlayerRepository = {
     }
     if (patch.taggedById !== undefined && patch.taggedById !== null) {
       next.taggedById = patch.taggedById as Id<"players">;
+    }
+    if (patch.captureChosenAt !== undefined) {
+      next.captureChosenAt = patch.captureChosenAt ?? undefined;
     }
 
     await db.patch(id as Id<"players">, next);
@@ -482,8 +522,35 @@ export const tagRepo: TagRepository = {
           : (input.assistedById as Id<"players">),
       scoredPoints: input.scoredPoints,
       at: input.at,
+      captureMode: input.captureMode ?? undefined,
+      forced: input.forced ?? false,
+      forcedBy: input.forcedByUserId
+        ? (input.forcedByUserId as Id<"users">)
+        : undefined,
     });
     return id;
+  },
+
+  listByMatch: async (ctx, matchId) => {
+    const docs = await reader(ctx)
+      .query("tags")
+      .withIndex("by_match", (q) => q.eq("matchId", matchId as Id<"matches">))
+      .collect();
+    return docs.map((t) => ({
+      id: t._id,
+      matchId: t.matchId,
+      hunterId: t.hunterId,
+      shadowId: t.shadowId,
+      status: t.status,
+      rejectionCode: t.rejectionCode ?? null,
+      distanceMetres: t.distanceMetres ?? null,
+      assistedById: t.assistedById ?? null,
+      captureMode: t.captureMode ?? null,
+      forced: t.forced ?? false,
+      forcedByUserId: t.forcedBy ?? null,
+      scoredPoints: t.scoredPoints,
+      at: t.at,
+    }));
   },
 };
 
@@ -492,7 +559,7 @@ export const tagRepo: TagRepository = {
 export const complaintRepo: ComplaintRepository = {
   create: async (ctx, input) => {
     const db = writer(ctx);
-    const at = Date.now();
+    const at = input.nowMs ?? Date.now();
     const id = await db.insert("complaints", {
       matchId: input.matchId as Id<"matches">,
       complainantId: input.complainantId as Id<"players">,
@@ -512,6 +579,16 @@ export const complaintRepo: ComplaintRepository = {
       .query("complaints")
       .withIndex("by_match_status", (q) =>
         q.eq("matchId", matchId as Id<"matches">).eq("status", "open"),
+      )
+      .collect();
+    return docs.map(complaintRow);
+  },
+
+  listByMatch: async (ctx, matchId) => {
+    const docs = await reader(ctx)
+      .query("complaints")
+      .withIndex("by_match_status", (q) =>
+        q.eq("matchId", matchId as Id<"matches">),
       )
       .collect();
     return docs.map(complaintRow);
@@ -625,6 +702,28 @@ export const scoreRepo: ScoreRepository = {
       .collect();
     return docs.map(scoreRow);
   },
+
+  listByMatch: async (ctx, matchId) => {
+    const docs = await reader(ctx)
+      .query("scoreEvents")
+      .withIndex("by_match", (q) =>
+        q.eq("matchId", matchId as Id<"matches">),
+      )
+      .collect();
+    return docs.map(scoreRow);
+  },
+
+  existsByRef: async (ctx, matchId, playerId, kind, refId) => {
+    const docs = await reader(ctx)
+      .query("scoreEvents")
+      .withIndex("by_match_player", (q) =>
+        q
+          .eq("matchId", matchId as Id<"matches">)
+          .eq("playerId", playerId as Id<"players">),
+      )
+      .collect();
+    return docs.some((doc) => doc.kind === kind && doc.refId === refId);
+  },
 };
 
 // ---- LeaderboardRepository -------------------------------------------------
@@ -666,6 +765,52 @@ export const leaderboardRepo: LeaderboardRepository = {
   },
 };
 
+/**
+ * AuditRepository on Convex. Append-only: rows are inserted and never patched.
+ */
+function auditRow(a: Doc<"auditLog">): AuditRow {
+  return {
+    id: a._id,
+    matchId: a.matchId,
+    at: a.at,
+    actorUserId: a.actorUserId,
+    actorName: a.actorName,
+    action: a.action,
+    targetType: a.targetType,
+    targetId: a.targetId ?? null,
+    targetLabel: a.targetLabel ?? null,
+    reason: a.reason ?? null,
+    detail: a.detail ?? null,
+  };
+}
+
+export const auditRepo: AuditRepository = {
+  append: async (ctx, input) => {
+    return await writer(ctx).insert("auditLog", {
+      matchId: input.matchId as Id<"matches">,
+      at: input.at,
+      actorUserId: input.actorUserId as Id<"users">,
+      actorName: input.actorName,
+      action: input.action,
+      targetType: input.targetType,
+      targetId: input.targetId ?? undefined,
+      targetLabel: input.targetLabel ?? undefined,
+      reason: input.reason ?? undefined,
+      detail: input.detail ?? undefined,
+    });
+  },
+
+  listByMatch: async (ctx, matchId) => {
+    const docs = await reader(ctx)
+      .query("auditLog")
+      .withIndex("by_match_time", (q) =>
+        q.eq("matchId", matchId as Id<"matches">),
+      )
+      .collect();
+    return docs.map(auditRow);
+  },
+};
+
 /** Every repository the server uses, implemented on Convex. */
 export const repos = {
   matches: matchRepo,
@@ -676,6 +821,7 @@ export const repos = {
   invigilators: invigilatorRepo,
   scores: scoreRepo,
   leaderboard: leaderboardRepo,
+  audit: auditRepo,
 } as const;
 
 export type Repos = typeof repos;

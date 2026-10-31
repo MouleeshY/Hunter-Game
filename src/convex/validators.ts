@@ -13,6 +13,7 @@ export const roleValidator = v.union(v.literal("hunter"), v.literal("shadow"));
 export const playerModeValidator = v.union(
   v.literal("spectator"),
   v.literal("hunter"),
+  v.literal("helper"),
 );
 
 export const playerStatusValidator = v.union(
@@ -69,8 +70,12 @@ export const matchConfigValidator = v.object({
 
   tagProximityMetres: v.number(),
   tagFreshnessSeconds: v.number(),
+  complaintFilingWindowMinutes: v.number(),
   complaintResponseMinutes: v.number(),
+  complaintRateLimit: v.number(),
+  complaintRateWindowMinutes: v.number(),
   invigilatorCount: v.object({ min: v.number(), max: v.number() }),
+  aliveTickMinutes: v.number(),
 
   minPlayers: v.number(),
   softCapPlayers: v.number(),

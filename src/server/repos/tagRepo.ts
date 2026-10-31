@@ -1,3 +1,4 @@
+import type { PlayerMode } from "../../rules/types";
 import type { RepoContext } from "./context";
 
 export type TagStatus = "accepted" | "rejected";
@@ -11,6 +12,11 @@ export interface TagRow {
   rejectionCode: string | null;
   distanceMetres: number | null;
   assistedById: string | null;
+  /** The mode on offer when the Shadow was captured — their default choice. */
+  captureMode: PlayerMode | null;
+  /** True when an invigilator forced the tag instead of a real scan. */
+  forced: boolean;
+  forcedByUserId: string | null;
   scoredPoints: number;
   at: number;
 }
@@ -26,8 +32,12 @@ export interface TagRepository {
       rejectionCode?: string | null;
       distanceMetres?: number | null;
       assistedById?: string | null;
+      captureMode?: PlayerMode | null;
+      forced?: boolean;
+      forcedByUserId?: string | null;
       scoredPoints: number;
       at: number;
     },
   ): Promise<string>;
+  listByMatch(ctx: RepoContext, matchId: string): Promise<TagRow[]>;
 }

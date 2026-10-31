@@ -8,6 +8,7 @@
 import {
   distanceMetres,
   RULES_CONFIG,
+  matchClockNow,
   nextShrinkAtMs,
   outOfZoneState,
   pingWindow,
@@ -16,6 +17,7 @@ import {
   uploadSchedule,
   visibilityFor,
   zoneRadiusAtMinute,
+  type MatchConfig,
   type MatchStatus,
   type OutOfZoneStatus,
   type PlayerStatus,
@@ -50,6 +52,15 @@ function effectiveStatus(match: MatchRow, nowMs: number): MatchStatus {
     endsAtMs: match.endsAt,
     nowMs,
     config: match.config,
+  });
+}
+
+/** The clock the rules run on: frozen while the match is paused. */
+function clockOf(match: MatchRow, nowMs: number): number {
+  return matchClockNow({
+    nowMs,
+    pausedAtMs: match.pausedAt,
+    pausedTotalMs: match.pausedTotalMs,
   });
 }
 
@@ -127,7 +138,8 @@ export async function uploadPosition(
   if (!player) throw new Error("You are not in this match.");
 
   const now = input.nowMs ?? Date.now();
-  const status = effectiveStatus(match, now);
+  const clock = clockOf(match, now);
+  const status = effectiveStatus(match, clock);
 
   // Move the stored match to live the first time a position lands after the
   // head start.
@@ -143,7 +155,7 @@ export async function uploadPosition(
   const schedule = uploadSchedule({
     status,
     lastUploadAtMs: last?.recordedAtMs ?? null,
-    nowMs: now,
+    nowMs: clock,
     config: match.config,
   });
   if (!schedule.allowed) {
@@ -204,7 +216,7 @@ export async function uploadPosition(
   // ---- ping ---------------------------------------------------------------
   const window = pingWindow({
     startedAtMs: match.startedAt,
-    nowMs: now,
+    nowMs: clock,
     config: match.config,
   });
   if (
@@ -217,11 +229,15 @@ export async function uploadPosition(
   }
 
   // ---- out of zone --------------------------------------------------------
-  const radius = currentRadius(match, await repos.players.listByMatch(ctx, match.id), now);
+  const radius = currentRadius(
+    match,
+    await repos.players.listByMatch(ctx, match.id),
+    clock,
+  );
   const distance = distanceMetres(input, match.zoneCentre);
   const outsideSince = player.outsideSince;
   const secondsOutside =
-    outsideSince === null ? 0 : Math.max(0, (now - outsideSince) / 1000);
+    outsideSince === null ? 0 : Math.max(0, (clock - outsideSince) / 1000);
   const state = outOfZoneState({
     distanceFromCentreMetres: distance,
     zoneRadiusMetres: radius,
@@ -265,17 +281,17 @@ export async function uploadPosition(
       playerId: player.id,
       kind: "zone_drain",
       points: -newTicks * match.config.drainPointsPerTick,
-      at: now,
+      at: clock,
     });
     breach.drainTicksApplied = newTicks;
   }
 
   const eliminated = state.shouldEliminate;
   await repos.players.patchOutZoneState(ctx, player.id, {
-    outsideSince: outsideSince ?? now,
+    outsideSince: outsideSince ?? clock,
     outsideSecondsTotal: Math.round(state.secondsOutside),
     chargedDrainTicks: owed,
-    warnedAt: player.warnedAt ?? now,
+    warnedAt: player.warnedAt ?? clock,
     ...(eliminated ? { status: "eliminated" as PlayerStatus } : {}),
   });
   if (eliminated && player.mode !== match.config.eliminatedTurnsInto) {
@@ -338,6 +354,11 @@ export interface MapView {
   endsAt: number | null;
   headStartEndsAt: number | null;
   serverNowMs: number;
+  /** Frozen while the match is paused: countdowns stop with it. */
+  paused: boolean;
+  pauseReason: string | null;
+  /** The match's own config snapshot — never the default RULES_CONFIG. */
+  config: MatchConfig;
   zone: {
     centreLat: number;
     centreLng: number;
@@ -405,6 +426,8 @@ export async function getMapView(
   const match = await repos.matches.findById(ctx, input.matchId);
   if (!match) throw new Error("Match not found.");
 
+  const clock = clockOf(match, now);
+
   const [players, invigilator, meAsPlayer] = await Promise.all([
     repos.players.listByMatch(ctx, match.id),
     repos.invigilators.findByMatchAndUser(ctx, match.id, input.userId),
@@ -425,10 +448,10 @@ export async function getMapView(
           status: meAsPlayer!.status,
         };
 
-  const status = effectiveStatus(match, now);
+  const status = effectiveStatus(match, clock);
   const window = pingWindow({
     startedAtMs: match.startedAt,
-    nowMs: now,
+    nowMs: clock,
     config: match.config,
   });
   const lastPingAtMs = match.lastPingAt ?? window.lastPingAtMs;
@@ -444,7 +467,7 @@ export async function getMapView(
     if (mode === null) continue;
 
     const location = await locationFor(ctx, match.id, candidate.id, mode, {
-      nowMs: now,
+      nowMs: clock,
       lastPingAtMs,
       delayMs,
     });
@@ -460,18 +483,18 @@ export async function getMapView(
       lat: location.lat,
       lng: location.lng,
       atMs: location.recordedAtMs,
-      ageMs: Math.max(0, now - location.recordedAtMs),
+      ageMs: Math.max(0, clock - location.recordedAtMs),
       accuracyMetres: location.accuracyMetres,
     });
   }
 
-  const radius = currentRadius(match, players, now);
+  const radius = currentRadius(match, players, clock);
 
   let breach: ZoneBreach | null = null;
   if (meAsPlayer) {
     const outsideSince = meAsPlayer.outsideSince;
     const secondsOutside =
-      outsideSince === null ? 0 : Math.max(0, (now - outsideSince) / 1000);
+      outsideSince === null ? 0 : Math.max(0, (clock - outsideSince) / 1000);
     const state = outOfZoneState({
       distanceFromCentreMetres: outsideSince === null ? 0 : radius + 1,
       zoneRadiusMetres: radius,
@@ -506,7 +529,10 @@ export async function getMapView(
       match.startedAt === null
         ? null
         : match.startedAt + match.config.headStartMinutes * 60_000,
-    serverNowMs: now,
+    serverNowMs: clock,
+    paused: match.pausedAt !== null,
+    pauseReason: match.pauseReason,
+    config: match.config,
     zone: {
       centreLat: match.zoneCentre.lat,
       centreLng: match.zoneCentre.lng,
@@ -515,7 +541,7 @@ export async function getMapView(
       nextShrinkAtMs:
         match.startedAt === null
           ? null
-          : nextShrinkAtMs(match.startedAt, now, match.config),
+          : nextShrinkAtMs(match.startedAt, clock, match.config),
     },
     ping: {
       lastPingAtMs,

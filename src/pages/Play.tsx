@@ -404,6 +404,9 @@ function LobbyView({
   const lockRoster = useMutation(api.rooms.lockRoster);
   const startRoom = useMutation(api.rooms.startRoom);
   const rerollCentre = useMutation(api.rooms.rerollCentreHandler);
+  const endRoom = useMutation(api.rooms.endRoom);
+  const pauseRoom = useMutation(api.rooms.pauseRoom);
+  const resumeRoom = useMutation(api.rooms.resumeRoom);
   const now = useNow();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -577,6 +580,15 @@ function LobbyView({
         </div>
       </div>
 
+      {lobby.paused && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-center text-amber-950">
+          <p className="text-[11px] uppercase tracking-[0.2em]">Match paused</p>
+          <p className="mt-1 text-[13px]">
+            {lobby.pauseReason ?? "The clock and the zone are frozen."}
+          </p>
+        </div>
+      )}
+
       {error && (
         <p className="text-center text-[12px] text-destructive">{error}</p>
       )}
@@ -630,6 +642,54 @@ function LobbyView({
           Leave
         </Button>
       </div>
+
+      {lobby.me.isOrganiser &&
+        (lobby.status === "headstart" || lobby.status === "live") && (
+          <div className="flex flex-wrap justify-center gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="lg"
+              disabled={busy}
+              className="h-11 uppercase tracking-[0.18em]"
+              onClick={() =>
+                run(
+                  () =>
+                    lobby.paused
+                      ? resumeRoom({
+                          matchId: lobby.matchId as never,
+                          reason: "Resumed by the organiser.",
+                        })
+                      : pauseRoom({
+                          matchId: lobby.matchId as never,
+                          reason: "Paused by the organiser.",
+                        }),
+                  "Could not pause or resume.",
+                )
+              }
+            >
+              {lobby.paused ? "Resume match" : "Pause match"}
+            </Button>
+            <Button
+              type="button"
+              size="lg"
+              disabled={busy}
+              className="h-11 uppercase tracking-[0.18em]"
+              onClick={() =>
+                run(
+                  () =>
+                    endRoom({
+                      matchId: lobby.matchId as never,
+                      reason: "Ended by the organiser.",
+                    }),
+                  "Could not end the match.",
+                )
+              }
+            >
+              End match
+            </Button>
+          </div>
+        )}
       {lobby.me.isOrganiser && !lobby.canStart && lobby.startBlockedReason && (
         <p className="text-center text-[12px] text-muted-foreground">
           {lobby.startBlockedReason}

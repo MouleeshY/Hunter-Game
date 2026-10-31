@@ -1,6 +1,6 @@
 /**
- * Match rules on the server: position uploads, tag scans, settling and the
- * public leaderboard.
+ * Match rules on the server: position uploads, tag scans, the capture choice,
+ * settling and the public leaderboard.
  *
  * Every database read and write goes through a repository from
  * `src/server/repos`. Every decision (proximity, freshness, scoring, end
@@ -12,11 +12,10 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import {
-  allTaggedBonus,
+  distanceMetres,
   hunterTagPoints,
   matchEndState,
   rankLeaderboard,
-  survivalBonus,
   validateTagScan,
   zoneProgress,
   zoneRadiusAtMinute,
@@ -24,8 +23,10 @@ import {
   type PlayerSnapshot,
 } from "shadow-hunt-rules";
 import { getRepos } from "../server/providers";
-import type { PlayerRow } from "../server/repos";
+import type { LocationRow, PlayerRow } from "../server/repos";
 import { award } from "../server/settlement";
+import { activeShadows, endMatch } from "../server/matchEnd";
+import { statusAfterCapture } from "../server/console";
 import { uploadPosition as uploadPositionService } from "../server/positionService";
 
 const repos = () => getRepos();
@@ -40,19 +41,14 @@ function playerSnapshot(player: PlayerRow): PlayerSnapshot {
   };
 }
 
-function locationSnapshot(row: {
-  lat: number;
-  lng: number;
-  recordedAtMs: number;
-  accuracyMetres: number | null;
-  pingIndex: number;
-}): LocationSnapshot {
+function locationSnapshot(row: LocationRow): LocationSnapshot {
   return {
     lat: row.lat,
     lng: row.lng,
     recordedAtMs: row.recordedAtMs,
     accuracyMetres: row.accuracyMetres,
     pingIndex: row.pingIndex,
+    suspicious: row.suspicious,
   };
 }
 
@@ -78,28 +74,41 @@ function zoneProgressNow(
 }
 
 /**
- * "150 bonus per Hunter" applies to every original Hunter who was not removed
- * by an invigilator. A Shadow who turned Hunter after being tagged is not an
- * original Hunter and receives nothing.
+ * The spoof check a scan reading gets, same numbers as the upload path: an
+ * impossible accuracy, or a jump faster than a person can move.
  */
-function isEligibleHunter(player: PlayerRow): boolean {
-  return (
-    player.role === "hunter" &&
-    player.status === "active" &&
-    player.taggedAt === null
-  );
+function spoofReason(args: {
+  previous: LocationRow | null;
+  lat: number;
+  lng: number;
+  accuracyMetres: number | null;
+  nowMs: number;
+  config: {
+    impossibleAccuracyMetres: number;
+    maxSpeedMetresPerSecond: number;
+  };
+}): string | null {
+  const { previous, accuracyMetres, config } = args;
+  if (
+    accuracyMetres !== null &&
+    (accuracyMetres < 0 || accuracyMetres > config.impossibleAccuracyMetres)
+  ) {
+    return "impossible_accuracy";
+  }
+  if (previous) {
+    const seconds = (args.nowMs - previous.recordedAtMs) / 1000;
+    if (seconds > 0) {
+      const speed =
+        distanceMetres(previous, { lat: args.lat, lng: args.lng }) / seconds;
+      if (speed > config.maxSpeedMetresPerSecond) return "impossible_speed";
+    }
+  }
+  return null;
 }
 
-function activeShadows(players: PlayerRow[]): PlayerRow[] {
-  return players.filter(
-    (player) =>
-      player.role === "shadow" &&
-      player.status === "active" &&
-      player.taggedAt === null,
-  );
-}
-
-/* ------------------------------------------------------------------ *\n * Position upload\n * ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ *
+ * Position upload
+ * ------------------------------------------------------------------ */
 
 /**
  * Phones upload their position every few seconds (`uploadIntervalSeconds`).
@@ -127,7 +136,9 @@ export const uploadPosition = mutation({
   },
 });
 
-/* ------------------------------------------------------------------ *\n * Tag scan\n * ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ *
+ * Tag scan
+ * ------------------------------------------------------------------ */
 
 export const submitTagScan = mutation({
   args: {
@@ -136,6 +147,7 @@ export const submitTagScan = mutation({
     /** The Hunter's current GPS reading, sent with the scan. */
     scannerLat: v.number(),
     scannerLng: v.number(),
+    scannerAccuracyMetres: v.optional(v.number()),
     /** Converted Hunter who helped with this capture. Noted at capture time. */
     assistedByPlayerId: v.optional(v.id("players")),
   },
@@ -159,14 +171,42 @@ export const submitTagScan = mutation({
     if (!Number.isFinite(args.scannerLat) || !Number.isFinite(args.scannerLng)) {
       throw new Error("A current GPS reading is needed to scan.");
     }
+
+    // Nothing happens while the match is frozen: no tags, no scoring.
+    if (match.pausedAt !== null) {
+      return {
+        ok: false as const,
+        code: "match_not_active" as const,
+        distanceMetres: null,
+        points: 0,
+        matchEnded: false,
+        winner: null,
+      };
+    }
+
+    const previous = await repos().locations.latestByPlayer(
+      ctx,
+      match.id,
+      scanner.id,
+    );
+    const scannerReason = spoofReason({
+      previous,
+      lat: args.scannerLat,
+      lng: args.scannerLng,
+      accuracyMetres: args.scannerAccuracyMetres ?? null,
+      nowMs: now,
+      config: match.config,
+    });
     const stored = await repos().locations.insert(ctx, {
       matchId: match.id,
       playerId: scanner.id,
       lat: args.scannerLat,
       lng: args.scannerLng,
-      accuracyMetres: null,
-      pingIndex: 0,
+      accuracyMetres: args.scannerAccuracyMetres ?? null,
+      pingIndex: (previous?.pingIndex ?? -1) + 1,
       recordedAt: now,
+      suspicious: scannerReason !== null,
+      suspiciousReason: scannerReason,
     });
 
     const target = await repos().players.findByMatchAndToken(
@@ -226,7 +266,7 @@ export const submitTagScan = mutation({
       ? hunterTagPoints({ zoneProgress01: progress, config: match.config })
       : 0;
 
-    /* Who helped: only a converted Hunter can assist. */
+    /* Who helped: a converted Hunter or a Helper may assist, never a stranger. */
     let assistedById: string | null = null;
     if (args.assistedByPlayerId) {
       const helper = players.find(
@@ -236,7 +276,7 @@ export const submitTagScan = mutation({
         helper &&
         helper.id !== scanner.id &&
         helper.taggedAt !== null &&
-        helper.mode === "hunter"
+        (helper.mode === "hunter" || helper.mode === "helper")
       ) {
         assistedById = helper.id;
       }
@@ -249,15 +289,19 @@ export const submitTagScan = mutation({
       status: "accepted",
       distanceMetres: verdict.distanceMetres,
       assistedById,
+      // The mode chosen before the match is the default offered at capture.
+      captureMode: target!.mode,
+      forced: false,
       scoredPoints: points,
       at: now,
     });
 
-    /* The Shadow stops scoring and takes the mode chosen before the match. */
+    /* The Shadow stops scoring and takes the preset mode until they choose. */
     await repos().players.patch(ctx, target!.id, {
-      status: target!.mode === "hunter" ? "tagged" : "spectator",
+      status: statusAfterCapture(target!.mode),
       taggedAt: now,
       taggedById: scanner.id,
+      captureChosenAt: null,
     });
 
     if (points > 0) {
@@ -274,12 +318,15 @@ export const submitTagScan = mutation({
     /* End conditions: Hunters win when no Shadow remains active. */
     const remaining = players.map((player) =>
       player.id === target!.id
-        ? { ...player, status: "tagged" as const, taggedAt: now }
+        ? {
+            ...player,
+            status: statusAfterCapture(target!.mode),
+            taggedAt: now,
+          }
         : player,
     );
-    const totalShadows = remaining.filter((p) => p.role === "shadow").length;
     const end = matchEndState({
-      totalShadows,
+      totalShadows: remaining.filter((p) => p.role === "shadow").length,
       activeShadows: activeShadows(remaining).length,
       nowMs: now,
       endsAtMs: match.endsAt,
@@ -287,25 +334,12 @@ export const submitTagScan = mutation({
 
     let matchEnded = false;
     if (end.ended && end.winner === "hunters") {
-      const bonus = allTaggedBonus(match.config);
-      for (const player of players) {
-        if (isEligibleHunter(player)) {
-          await award(ctx, {
-            matchId: match.id,
-            playerId: player.id,
-            kind: "all_tagged_bonus",
-            points: bonus,
-            at: now,
-            refId: tagId,
-          });
-        }
-      }
-      await repos().matches.patch(ctx, match.id, {
-        status: "ended",
-        winner: "hunters",
-        endedAt: now,
+      const settled = await endMatch(ctx, {
+        matchId: match.id,
+        nowMs: now,
+        refId: tagId,
       });
-      matchEnded = true;
+      matchEnded = settled.ended;
     }
 
     return {
@@ -314,76 +348,81 @@ export const submitTagScan = mutation({
       distanceMetres: verdict.distanceMetres,
       points,
       matchEnded,
-      winner: end.winner,
+      winner: end.ended ? end.winner : null,
+      /** The choice the tagged player is offered next. */
+      captureMode: target!.mode,
     };
   },
 });
 
-/* ------------------------------------------------------------------ *\n * Settle on the timer\n * ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ *
+ * Capture choice
+ * ------------------------------------------------------------------ */
+
+/**
+ * The tagged Shadow decides what happens next: Spectator, join the Hunters, or
+ * Helper (helps a Hunter, plays for fun, earns nothing). The organiser's preset
+ * arrives as the default; this records the moment they actually chose.
+ */
+export const chooseCaptureMode = mutation({
+  args: {
+    matchId: v.id("matches"),
+    mode: v.union(
+      v.literal("spectator"),
+      v.literal("hunter"),
+      v.literal("helper"),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) throw new Error("Not signed in");
+
+    const player = await repos().players.findByMatchAndUser(
+      ctx,
+      args.matchId,
+      userId,
+    );
+    if (!player) throw new Error("You are not in this match.");
+    if (player.taggedAt === null) {
+      throw new Error("Only a captured Shadow picks a mode.");
+    }
+
+    await repos().players.patch(ctx, player.id, {
+      mode: args.mode,
+      status: statusAfterCapture(args.mode),
+      captureChosenAt: now,
+    });
+    return { mode: args.mode };
+  },
+});
+
+/* ------------------------------------------------------------------ *
+ * Settle on the timer
+ * ------------------------------------------------------------------ */
 
 export const settleMatch = mutation({
   args: { matchId: v.id("matches") },
   handler: async (ctx, args) => {
-    const now = Date.now();
     const match = await repos().matches.findById(ctx, args.matchId);
     if (!match) throw new Error("Match not found");
     if (match.status === "ended") {
-      return {
-        ended: true,
-        winner: match.winner,
-        alreadySettled: true,
-      };
+      return { ended: true, winner: match.winner, alreadySettled: true };
     }
 
-    const players = await repos().players.listByMatch(ctx, match.id);
-    const totalShadows = players.filter((p) => p.role === "shadow").length;
-    const end = matchEndState({
-      totalShadows,
-      activeShadows: activeShadows(players).length,
-      nowMs: now,
-      endsAtMs: match.endsAt,
-    });
-    if (!end.ended) throw new Error("The match has not ended yet");
-
-    if (end.winner === "hunters") {
-      const bonus = allTaggedBonus(match.config);
-      for (const player of players) {
-        if (isEligibleHunter(player)) {
-          await award(ctx, {
-            matchId: match.id,
-            playerId: player.id,
-            kind: "all_tagged_bonus",
-            points: bonus,
-            at: now,
-          });
-        }
-      }
-    } else {
-      // Removed, tagged and eliminated Shadows get nothing: only an active,
-      // untagged Shadow receives the survival bonus.
-      const bonus = survivalBonus(match.config);
-      for (const player of activeShadows(players)) {
-        await award(ctx, {
-          matchId: match.id,
-          playerId: player.id,
-          kind: "survival_bonus",
-          points: bonus,
-          at: now,
-        });
-      }
-    }
-
-    await repos().matches.patch(ctx, match.id, {
-      status: "ended",
-      winner: end.winner,
-      endedAt: now,
-    });
-
-    return { ended: true, winner: end.winner, alreadySettled: false };
+    const result = await endMatch(ctx, { matchId: match.id });
+    if (!result.ended) throw new Error("The match has not ended yet");
+    return {
+      ended: true,
+      winner: result.winner,
+      alreadySettled: result.alreadySettled,
+    };
   },
 });
 
-/* ------------------------------------------------------------------ *\n * Public leaderboard\n * ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ *
+ * Public leaderboard
+ * ------------------------------------------------------------------ */
 
 export const getLeaderboard = query({
   args: { matchId: v.id("matches") },

@@ -38,4 +38,17 @@ export interface ScoreRepository {
     matchId: string,
     playerId: string,
   ): Promise<ScoreEventRow[]>;
+  /** Every event in a match, used by the minute tick and the console. */
+  listByMatch(ctx: RepoContext, matchId: string): Promise<ScoreEventRow[]>;
+  /**
+   * Has this ledger entry already been written? The scheduler uses it to
+   * guarantee a minute of alive points is awarded exactly once.
+   */
+  existsByRef(
+    ctx: RepoContext,
+    matchId: string,
+    playerId: string,
+    kind: ScoreKind,
+    refId: string,
+  ): Promise<boolean>;
 }

@@ -10,6 +10,8 @@ import type { LocationRow } from "../repos/locationRepo";
 import type { LeaderboardRow } from "../repos/leaderboardRepo";
 import type { ScoreEventRow } from "../repos/scoreRepo";
 import type { ComplaintRow } from "../repos/complaintRepo";
+import type { TagRow } from "../repos/tagRepo";
+import type { AuditRow } from "../repos/auditRepo";
 
 export function memoryRepos(): Repos {
   const matches = new Map<string, MatchRow>();
@@ -19,6 +21,8 @@ export function memoryRepos(): Repos {
   const leaderboard = new Map<string, LeaderboardRow>();
   const scores: ScoreEventRow[] = [];
   const complaints = new Map<string, ComplaintRow>();
+  const tags = new Map<string, TagRow>();
+  const audit: AuditRow[] = [];
   let seq = 0;
   const nextId = (prefix: string) => `${prefix}-${(seq += 1)}`;
 
@@ -30,6 +34,10 @@ export function memoryRepos(): Repos {
       listEndedBefore: async (_ctx, endedBeforeMs) =>
         [...matches.values()].filter(
           (m) => m.status === "ended" && (m.endedAt ?? Infinity) < endedBeforeMs,
+        ),
+      listRunning: async (_ctx) =>
+        [...matches.values()].filter(
+          (m) => m.status === "headstart" || m.status === "live",
         ),
       create: async (_ctx, input) => {
         const row: MatchRow = {
@@ -46,6 +54,10 @@ export function memoryRepos(): Repos {
           zoneCentre: input.zoneCentre,
           organiserPosition: input.organiserPosition,
           lastPingAt: null,
+          pausedAt: null,
+          pausedTotalMs: 0,
+          pauseReason: null,
+          aliveUpToMinute: -1,
           initialRadiusMetres: input.initialRadiusMetres,
           winner: null,
           endedAt: null,
@@ -60,6 +72,14 @@ export function memoryRepos(): Repos {
         if (patch.startedAt !== undefined) row.startedAt = patch.startedAt;
         if (patch.endsAt !== undefined) row.endsAt = patch.endsAt;
         if (patch.lastPingAt !== undefined) row.lastPingAt = patch.lastPingAt;
+        if (patch.pausedAt !== undefined) row.pausedAt = patch.pausedAt;
+        if (patch.pausedTotalMs !== undefined) {
+          row.pausedTotalMs = patch.pausedTotalMs;
+        }
+        if (patch.pauseReason !== undefined) row.pauseReason = patch.pauseReason;
+        if (patch.aliveUpToMinute !== undefined) {
+          row.aliveUpToMinute = patch.aliveUpToMinute;
+        }
         if (patch.rosterLocked !== undefined) row.rosterLocked = patch.rosterLocked;
         if (patch.winner !== undefined) row.winner = patch.winner;
         if (patch.endedAt !== undefined) row.endedAt = patch.endedAt;
@@ -97,6 +117,7 @@ export function memoryRepos(): Repos {
           joinedAt: input.joinedAt,
           taggedAt: null,
           taggedById: null,
+          captureChosenAt: null,
           outsideSince: null,
           outsideSecondsTotal: 0,
           chargedDrainTicks: 0,
@@ -180,18 +201,40 @@ export function memoryRepos(): Repos {
       },
     },
     tags: {
-      insert: async () => nextId("tag"),
+      insert: async (_ctx, input) => {
+        const id = nextId("tag");
+        tags.set(id, {
+          id,
+          matchId: input.matchId,
+          hunterId: input.hunterId,
+          shadowId: input.shadowId,
+          status: input.status,
+          rejectionCode: input.rejectionCode ?? null,
+          distanceMetres: input.distanceMetres ?? null,
+          assistedById: input.assistedById ?? null,
+          captureMode: input.captureMode ?? null,
+          forced: input.forced ?? false,
+          forcedByUserId: input.forcedByUserId ?? null,
+          scoredPoints: input.scoredPoints,
+          at: input.at,
+        });
+        return id;
+      },
+      listByMatch: async (_ctx, matchId) =>
+        [...tags.values()].filter((t) => t.matchId === matchId),
     },
     complaints: {
       create: async (_ctx, input) => {
+        const at = input.nowMs ?? Date.now();
         const row: ComplaintRow = {
           id: nextId("complaint"),
           matchId: input.matchId,
           complainantId: input.complainantId,
           accusedId: input.accusedId,
           note: input.note,
-          createdAt: Date.now(),
-          responseDueAt: Date.now() + input.configComplaintResponseMinutes * 60_000,
+          createdAt: at,
+          responseDueAt:
+            at + input.configComplaintResponseMinutes * 60_000,
           status: "open",
           resolvedByUserId: null,
           resolvedAt: null,
@@ -204,6 +247,8 @@ export function memoryRepos(): Repos {
         [...complaints.values()].filter(
           (c) => c.matchId === matchId && c.status === "open",
         ),
+      listByMatch: async (_ctx, matchId) =>
+        [...complaints.values()].filter((c) => c.matchId === matchId),
       patch: async (_ctx, id, patch) => {
         const row = complaints.get(id);
         if (!row) throw new Error(`complaint ${id} not found`);
@@ -258,6 +303,16 @@ export function memoryRepos(): Repos {
       },
       listByPlayer: async (_ctx, matchId, playerId) =>
         scores.filter((s) => s.matchId === matchId && s.playerId === playerId),
+      listByMatch: async (_ctx, matchId) =>
+        scores.filter((s) => s.matchId === matchId),
+      existsByRef: async (_ctx, matchId, playerId, kind, refId) =>
+        scores.some(
+          (s) =>
+            s.matchId === matchId &&
+            s.playerId === playerId &&
+            s.kind === kind &&
+            s.refId === refId,
+        ),
     },
     leaderboard: {
       upsert: async (_ctx, input) => {
@@ -278,6 +333,15 @@ export function memoryRepos(): Repos {
       },
       listByMatch: async (_ctx, matchId) =>
         [...leaderboard.values()].filter((r) => r.matchId === matchId),
+    },
+    audit: {
+      append: async (_ctx, input) => {
+        const id = nextId("audit");
+        audit.push({ ...input, id, targetId: input.targetId ?? null, targetLabel: input.targetLabel ?? null, reason: input.reason ?? null, detail: input.detail ?? null });
+        return id;
+      },
+      listByMatch: async (_ctx, matchId) =>
+        audit.filter((a) => a.matchId === matchId),
     },
   };
 }
