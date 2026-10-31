@@ -39,5 +39,11 @@ export interface TagRepository {
       at: number;
     },
   ): Promise<string>;
+  /** Record the mode the captured Shadow finally chose. */
+  patch(
+    ctx: RepoContext,
+    id: string,
+    patch: { captureMode?: PlayerMode },
+  ): Promise<void>;
   listByMatch(ctx: RepoContext, matchId: string): Promise<TagRow[]>;
 }

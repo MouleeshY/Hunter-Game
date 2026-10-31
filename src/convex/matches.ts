@@ -393,6 +393,19 @@ export const chooseCaptureMode = mutation({
       status: statusAfterCapture(args.mode),
       captureChosenAt: now,
     });
+
+    // The choice is written back onto the tag raised when they were caught.
+    const tags = await repos().tags.listByMatch(ctx, args.matchId);
+    const tag = tags
+      .filter(
+        (row) =>
+          row.shadowId === player.id && row.status === "accepted",
+      )
+      .sort((a, b) => b.at - a.at)[0];
+    if (tag) {
+      await repos().tags.patch(ctx, tag.id, { captureMode: args.mode });
+    }
+
     return { mode: args.mode };
   },
 });

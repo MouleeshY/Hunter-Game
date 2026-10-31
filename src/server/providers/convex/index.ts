@@ -531,6 +531,13 @@ export const tagRepo: TagRepository = {
     return id;
   },
 
+  patch: async (ctx, id, patch) => {
+    const db = writer(ctx);
+    const next: { captureMode?: PlayerRow["mode"] } = {};
+    if (patch.captureMode !== undefined) next.captureMode = patch.captureMode;
+    await db.patch(id as Id<"tags">, next);
+  },
+
   listByMatch: async (ctx, matchId) => {
     const docs = await reader(ctx)
       .query("tags")

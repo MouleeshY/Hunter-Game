@@ -52,7 +52,7 @@ function memoryRepos(): Repos {
         ),
       findByRoomCode: async (_ctx, roomCode) =>
         [...matches.values()].find((m) => m.roomCode === roomCode) ?? null,
-      listRunning: async (_ctx) =>
+      listRunning: async () =>
         [...matches.values()].filter(
           (m) => m.status === "headstart" || m.status === "live",
         ),
@@ -236,6 +236,7 @@ function memoryRepos(): Repos {
         });
         return id;
       },
+      patch: async () => undefined,
       listByMatch: async (_ctx, matchId) =>
         tags.filter((t) => t.matchId === matchId),
     },

@@ -80,21 +80,6 @@ async function requireFreezeRights(
   return { actor: invigilator.displayName, match };
 }
 
-async function actorNameFor(
-  ctx: RepoContext,
-  match: MatchRow,
-  userId: string,
-): Promise<string> {
-  const repos = getRepos();
-  const invigilator = await repos.invigilators.findByMatchAndUser(
-    ctx,
-    match.id,
-    userId,
-  );
-  if (invigilator) return invigilator.displayName;
-  return match.createdByUserId === userId ? "Organiser" : "Staff";
-}
-
 async function logAction(
   ctx: RepoContext,
   input: {

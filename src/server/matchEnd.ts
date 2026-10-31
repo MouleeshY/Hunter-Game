@@ -8,7 +8,7 @@
 import { matchEndState, survivalBonus, allTaggedBonus } from "../rules";
 import { getRepos } from "./providers";
 import { award } from "./settlement";
-import type { MatchRow, PlayerRow, RepoContext } from "./repos";
+import type { PlayerRow, RepoContext } from "./repos";
 
 export interface EndResult {
   ended: boolean;

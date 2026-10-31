@@ -376,8 +376,11 @@ describe("position history retention", () => {
     const { match, shadows } = await setupMatch();
     const repos = getRepos();
     const player = shadows[0];
-    await upload(match.id, player, T0 + 5 * MIN + 10_000, atMetres(400));
-    await upload(match.id, player, T0 + 5 * MIN + 90_000, atMetres(400));
+    // Measure from the zone centre, not the organiser: the centre is random.
+    const centre = { lat: match.zoneCentre.lat, lng: match.zoneCentre.lng };
+    const outsidePoint = atMetres(400, centre);
+    await upload(match.id, player, T0 + 5 * MIN + 10_000, outsidePoint);
+    await upload(match.id, player, T0 + 5 * MIN + 90_000, outsidePoint);
 
     const before = await repos.locations.latestByPlayer(null, match.id, player.id);
     expect(before).not.toBeNull();

@@ -22,6 +22,7 @@ import {
   pauseMatch,
   removePlayer,
   resumeMatch,
+  statusAfterCapture,
 } from "./console";
 import { fileComplaint } from "./complaints";
 import {
@@ -728,6 +729,69 @@ describe("filing a complaint", () => {
         nowMs: when,
       }),
     ).rejects.toThrow();
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Capture choices
+ * ------------------------------------------------------------------ */
+
+describe("capture modes", () => {
+  it("maps each choice onto a status", () => {
+    expect(statusAfterCapture("spectator")).toBe("spectator");
+    expect(statusAfterCapture("hunter")).toBe("tagged");
+    expect(statusAfterCapture("helper")).toBe("tagged");
+  });
+
+  it("only a converted Hunter may scan, and never scores after capture", () => {
+    const now = Date.now();
+    const captured = (mode: "hunter" | "helper") => ({
+      id: "c1",
+      role: "shadow" as const,
+      mode,
+      status: "tagged" as const,
+      taggedAtMs: now - 1000,
+    });
+    const target = {
+      id: "t1",
+      role: "shadow" as const,
+      mode: "spectator" as const,
+      status: "active" as const,
+      taggedAtMs: null,
+    };
+    const here = {
+      lat: 51.5,
+      lng: -0.12,
+      recordedAtMs: now,
+      accuracyMetres: 8,
+      pingIndex: 1,
+    };
+
+    // A Helper is not a Hunter and cannot land a tag at all.
+    const asHelper = validateTagScan(
+      baseSnapshot({
+        nowMs: now,
+        scanner: captured("helper"),
+        target,
+        scannerLocation: here,
+        targetLocation: here,
+      }),
+    );
+    expect(asHelper.ok).toBe(false);
+    if (!asHelper.ok) expect(asHelper.code).toBe("scanner_not_hunter");
+
+    // A converted Hunter can tag, but earns nothing for it.
+    const asConverted = validateTagScan(
+      baseSnapshot({
+        nowMs: now,
+        scanner: captured("hunter"),
+        target,
+        scannerLocation: here,
+        targetLocation: here,
+      }),
+    );
+    expect(asConverted.ok).toBe(true);
+    if (asConverted.ok) expect(asConverted.scores).toBe(false);
   });
 });
 

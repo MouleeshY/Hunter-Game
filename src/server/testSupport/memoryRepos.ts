@@ -35,7 +35,7 @@ export function memoryRepos(): Repos {
         [...matches.values()].filter(
           (m) => m.status === "ended" && (m.endedAt ?? Infinity) < endedBeforeMs,
         ),
-      listRunning: async (_ctx) =>
+      listRunning: async () =>
         [...matches.values()].filter(
           (m) => m.status === "headstart" || m.status === "live",
         ),
@@ -219,6 +219,13 @@ export function memoryRepos(): Repos {
           at: input.at,
         });
         return id;
+      },
+      patch: async (_ctx, id, patch) => {
+        const row = tags.get(id);
+        if (!row) throw new Error(`tag ${id} not found`);
+        if (patch.captureMode !== undefined) {
+          row.captureMode = patch.captureMode;
+        }
       },
       listByMatch: async (_ctx, matchId) =>
         [...tags.values()].filter((t) => t.matchId === matchId),

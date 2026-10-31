@@ -11,6 +11,7 @@ import { ComplaintForm } from "@/components/match/ComplaintForm";
 import { CaptureChoice } from "@/components/match/CaptureChoice";
 import { useGeolocation, useWakeLock } from "@/hooks/useGeolocation";
 import { usePositionUpload } from "@/hooks/usePositionUpload";
+import { useServerClock } from "@/hooks/useServerClock";
 import { RULES_CONFIG } from "@/rules/config";
 import { simulatedFixAt, simulatedGpsAvailable } from "@/lib/simulatedGps";
 
@@ -83,23 +84,12 @@ export default function Match() {
   const [simElapsed, setSimElapsed] = useState(0);
   const devMode = simulatedGpsAvailable();
 
-  // Countdowns run on the server clock: the offset is measured each time new
-  // data arrives, so a skewed phone clock cannot drift the timers.
-  const [clockOffset, setClockOffset] = useState(0);
-  const serverNow = view?.serverNowMs ?? null;
-  useEffect(() => {
-    if (serverNow !== null) setClockOffset(serverNow - Date.now());
-  }, [serverNow]);
-
-  const [, setSecond] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setSecond((value) => value + 1), 1000);
-    return () => clearInterval(id);
-  }, []);
-
+  // Countdowns run on the server clock, never the phone's.
   const paused = view?.paused ?? false;
-  const now =
-    serverNow !== null && paused ? serverNow : Date.now() + clockOffset;
+  const now = useServerClock({
+    serverNowMs: view?.serverNowMs ?? null,
+    paused,
+  });
 
   useEffect(() => {
     if (!simulate) return;

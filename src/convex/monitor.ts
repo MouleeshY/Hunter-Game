@@ -30,7 +30,23 @@ export const view = query({
   args: { matchId: v.id("matches") },
   handler: async (ctx, args) => {
     const user = await userId(ctx);
-    return await getConsoleView(ctx, { matchId: args.matchId, userId: user });
+    try {
+      return await getConsoleView(ctx, {
+        matchId: args.matchId,
+        userId: user,
+      });
+    } catch (cause) {
+      // A query cannot reject gracefully, so an outsider gets an empty view
+      // rather than a crashed page. Anything else is a real failure.
+      const message = cause instanceof Error ? cause.message : "";
+      if (
+        message.startsWith("Only an invigilator") ||
+        message === "Match not found."
+      ) {
+        return null;
+      }
+      throw cause;
+    }
   },
 });
 

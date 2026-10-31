@@ -43,12 +43,16 @@ export function Scanner({
 
   useEffect(() => stop, [stop]);
 
+  // The frame loop schedules itself through a ref, so it can re-arm without
+  // referencing itself inside its own initializer.
+  const loopRef = useRef<() => void>(() => undefined);
+
   const readFrame = useCallback(() => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas) return;
     if (video.readyState < 2 || video.videoWidth === 0) {
-      frameRef.current = requestAnimationFrame(readFrame);
+      frameRef.current = requestAnimationFrame(() => loopRef.current());
       return;
     }
 
@@ -72,8 +76,12 @@ export function Scanner({
     } catch {
       // A frame we cannot read is not fatal; the next one may work.
     }
-    frameRef.current = requestAnimationFrame(readFrame);
+    frameRef.current = requestAnimationFrame(() => loopRef.current());
   }, [onScan, stop]);
+
+  useEffect(() => {
+    loopRef.current = readFrame;
+  });
 
   const start = useCallback(async () => {
     setStage("requesting");

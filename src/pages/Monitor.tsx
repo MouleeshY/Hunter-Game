@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { GameMap, type MapMarkerInput } from "@/components/map/GameMap";
+import { useServerClock } from "@/hooks/useServerClock";
 import type { PlayerMode } from "@/rules/types";
 
 /* ------------------------------------------------------------------ *
@@ -242,18 +243,11 @@ function Console({ matchId, onLeave }: { matchId: string; onLeave: () => void })
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Countdowns follow the server clock, measured when data arrives.
-  const [offset, setOffset] = useState(0);
-  const serverNow = view?.serverNowMs ?? null;
-  useEffect(() => {
-    if (serverNow !== null) setOffset(serverNow - Date.now());
-  }, [serverNow]);
-  const [, setSecond] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setSecond((v) => v + 1), 1000);
-    return () => clearInterval(id);
-  }, []);
-  const now = serverNow !== null && view?.paused ? serverNow : Date.now() + offset;
+  // Countdowns follow the server clock, never the phone's.
+  const now = useServerClock({
+    serverNowMs: view?.serverNowMs ?? null,
+    paused: view?.paused ?? false,
+  });
 
   if (view === undefined) {
     return (

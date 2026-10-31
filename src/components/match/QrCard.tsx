@@ -27,7 +27,9 @@ export function QrCard({
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const opened = useRef(onOpened);
-  opened.current = onOpened;
+  useEffect(() => {
+    opened.current = onOpened;
+  });
 
   useEffect(() => {
     let alive = true;
