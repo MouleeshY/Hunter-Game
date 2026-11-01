@@ -17,10 +17,10 @@ import {
   createPostgresTestDatabase,
   type TestDatabase,
 } from "./testSupport/pglite";
-import { getRepos, setReposForTests } from "./providers";
-import { createPostgresProvider, type PostgresProvider } from "./providers/postgres";
-import type { Repos, RepoContext } from "./repos";
-import { RULES_CONFIG } from "../rules";
+import { getRepos, setReposForTests } from "../providers";
+import { createPostgresProvider, type PostgresProvider } from "../providers/postgres";
+import type { Repos, RepoContext } from "../repos";
+import { RULES_CONFIG } from "../../rules";
 
 const USER_A = "0f1e2d3c-0000-4000-8000-000000000001";
 const USER_B = "0f1e2d3c-0000-4000-8000-000000000002";

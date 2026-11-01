@@ -20,7 +20,7 @@ import {
   type Db,
   type DbConnection,
   type PostgresProvider,
-} from "../providers/postgres";
+} from "../../providers/postgres";
 
 /** A PGlite connection as the `Db` abstraction sees it. */
 export function pgliteDb(db: PGlite): Db {

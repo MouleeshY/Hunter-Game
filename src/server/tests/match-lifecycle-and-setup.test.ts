@@ -32,10 +32,10 @@ import {
   resumeMatch,
   startMatch,
   uploadPosition,
-} from "./index";
-import { forceTag } from "./console";
-import { runMatchTick } from "./scheduler";
-import { getRepos, setReposForTests } from "./providers";
+} from "../index";
+import { forceTag } from "../console";
+import { runMatchTick } from "../scheduler";
+import { getRepos, setReposForTests } from "../providers";
 import { memoryRepos } from "./testSupport/memoryRepos";
 import {
   detectionVerdict,
@@ -48,7 +48,7 @@ import {
   type MatchConfig,
   type Role,
   type SeparationSample,
-} from "../rules";
+} from "../../rules";
 
 const ORGANISER = "user-organiser";
 const INVIGILATOR = "user-invigilator";

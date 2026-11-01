@@ -11,12 +11,12 @@ import {
   getLobby,
   joinMatch,
   startMatch,
-} from "./index";
-import { beginHeadStart } from "./setup";
-import { getRepos, setReposForTests } from "./providers";
+} from "../index";
+import { beginHeadStart } from "../setup";
+import { getRepos, setReposForTests } from "../providers";
 import { memoryRepos } from "./testSupport/memoryRepos";
-import { runMatchTick } from "./scheduler";
-import { endMatch } from "./matchEnd";
+import { runMatchTick } from "../scheduler";
+import { endMatch } from "../matchEnd";
 import {
   dismissComplaint,
   forceTag,
@@ -25,16 +25,16 @@ import {
   removePlayer,
   resumeMatch,
   statusAfterCapture,
-} from "./console";
-import { fileComplaint } from "./complaints";
+} from "../console";
+import { fileComplaint } from "../complaints";
 import {
   complaintIsOverdue,
   complaintPolicy,
   matchClockNow,
   validateTagScan,
   RULES_CONFIG,
-} from "../rules";
-import type { MatchRow } from "./repos/matchRepo";
+} from "../../rules";
+import type { MatchRow } from "../repos/matchRepo";
 
 const ORGANISER = "user-organiser";
 const COORD = { lat: 51.5074, lng: -0.1278 };

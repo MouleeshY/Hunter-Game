@@ -23,9 +23,9 @@ import {
   joinMatch,
   startMatch,
   uploadPosition,
-} from "./index";
-import { abortMatch, forceTag } from "./console";
-import { award } from "./settlement";
+} from "../index";
+import { abortMatch, forceTag } from "../console";
+import { award } from "../settlement";
 import {
   getPlayerResult,
   getPublicResult,
@@ -33,15 +33,15 @@ import {
   getResultToolsBySlug,
   listPublicResults,
   setResultPublished,
-} from "./results";
-import { getRepos, setReposForTests } from "./providers";
+} from "../results";
+import { getRepos, setReposForTests } from "../providers";
 import { memoryRepos } from "./testSupport/memoryRepos";
 import {
   matchClockMs,
   radarPulsesFired,
   RULES_CONFIG,
   survivedMinutes,
-} from "../rules";
+} from "../../rules";
 
 const ORGANISER = "user-organiser";
 const INVIGILATOR = "user-invigilator";

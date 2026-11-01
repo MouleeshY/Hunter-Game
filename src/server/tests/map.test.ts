@@ -11,14 +11,14 @@ import {
   joinMatch,
   startMatch,
   uploadPosition,
-} from "./index";
-import { beginHeadStart } from "./setup";
-import { getRepos, setReposForTests } from "./providers";
+} from "../index";
+import { beginHeadStart } from "../setup";
+import { getRepos, setReposForTests } from "../providers";
 import { memoryRepos } from "./testSupport/memoryRepos";
-import { purgeExpiredPositions } from "./positionService";
-import { RULES_CONFIG } from "../rules/config";
-import type { PlayerRow } from "./repos/playerRepo";
-import type { MatchRow } from "./repos/matchRepo";
+import { purgeExpiredPositions } from "../positionService";
+import { RULES_CONFIG } from "../../rules/config";
+import type { PlayerRow } from "../repos/playerRepo";
+import type { MatchRow } from "../repos/matchRepo";
 
 const T0 = 1_700_000_000_000; // fixed clock: match start
 const MIN = 60_000;

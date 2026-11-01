@@ -1,9 +1,25 @@
 /**
- * In-memory repositories for tests: same interfaces as the Convex provider, so
- * server services can be driven end to end without a deployment.
+ * Stage 2 flow test: create → join → lock → start, run through the real service
+ * layer against an in-memory repository set. This is what several browsers do,
+ * minus the network: the same validation and the same rules code.
  */
-import type { Repos } from "../repos";
-import type { UserRow } from "../repos/userRepo";
+import { afterAll, beforeEach, describe, expect, it } from "bun:test";
+import {
+  confirmBriefing,
+  createMatch,
+  getLobby,
+  joinMatch,
+  setRosterLock,
+  startMatch,
+  claimInvite,
+  previewInvite,
+  rerollCentre,
+  uploadPosition,
+} from "../index";
+import { beginHeadStart } from "../setup";
+import { setReposForTests, type Repos } from "../providers";
+import { RULES_CONFIG } from "../../rules/config";
+import { distanceMetres } from "../../rules/zone";
 import type { PlayerRow } from "../repos/playerRepo";
 import type { MatchRow } from "../repos/matchRepo";
 import type { InvigilatorRow } from "../repos/invigilatorRepo";
@@ -15,8 +31,9 @@ import type { TagRow } from "../repos/tagRepo";
 import type { AuditRow } from "../repos/auditRepo";
 import type { MatchEventRow } from "../repos/eventRepo";
 
-export function memoryRepos(): Repos {
-  const users = new Map<string, UserRow>();
+/* ------------------------------------------------------------------ *\n * In-memory repositories\n * ------------------------------------------------------------------ */
+
+function memoryRepos(): Repos {
   const matches = new Map<string, MatchRow>();
   const players = new Map<string, PlayerRow>();
   const invigilators = new Map<string, InvigilatorRow>();
@@ -24,18 +41,19 @@ export function memoryRepos(): Repos {
   const leaderboard = new Map<string, LeaderboardRow>();
   const scores: ScoreEventRow[] = [];
   const complaints = new Map<string, ComplaintRow>();
-  const tags = new Map<string, TagRow>();
+  const tags: TagRow[] = [];
   const audit: AuditRow[] = [];
   const events: MatchEventRow[] = [];
   let seq = 0;
   const nextId = (prefix: string) => `${prefix}-${(seq += 1)}`;
 
-  return {
+  const users = new Map<string, { id: string; name: string | null; email: string | null }>();
+  const repos: Repos = {
     users: {
       findById: async (_ctx, id) => users.get(id) ?? null,
       upsert: async (_ctx, input) => {
         const existing = users.get(input.id);
-        const row: UserRow = {
+        const row = {
           id: input.id,
           name: input.name ?? existing?.name ?? null,
           email: input.email ?? existing?.email ?? null,
@@ -46,6 +64,10 @@ export function memoryRepos(): Repos {
     },
     matches: {
       findById: async (_ctx, id) => matches.get(id) ?? null,
+      listEndedBefore: async (_ctx, endedBeforeMs) =>
+        [...matches.values()].filter(
+          (m) => m.status === "ended" && (m.endedAt ?? Infinity) < endedBeforeMs,
+        ),
       findByRoomCode: async (_ctx, roomCode) =>
         [...matches.values()].find((m) => m.roomCode === roomCode) ?? null,
       findByPublicSlug: async (_ctx, slug) =>
@@ -54,10 +76,6 @@ export function memoryRepos(): Repos {
         [...matches.values()]
           .filter((m) => m.status === "ended")
           .sort((a, b) => (a.endedAt ?? 0) - (b.endedAt ?? 0)),
-      listEndedBefore: async (_ctx, endedBeforeMs) =>
-        [...matches.values()].filter(
-          (m) => m.status === "ended" && (m.endedAt ?? Infinity) < endedBeforeMs,
-        ),
       listRunning: async () =>
         [...matches.values()].filter(
           (m) =>
@@ -104,7 +122,6 @@ export function memoryRepos(): Repos {
         if (patch.status !== undefined) row.status = patch.status;
         if (patch.startedAt !== undefined) row.startedAt = patch.startedAt;
         if (patch.endsAt !== undefined) row.endsAt = patch.endsAt;
-        if (patch.lastPingAt !== undefined) row.lastPingAt = patch.lastPingAt;
         if (patch.setupStartedAt !== undefined) {
           row.setupStartedAt = patch.setupStartedAt;
         }
@@ -245,7 +262,7 @@ export function memoryRepos(): Repos {
     tags: {
       insert: async (_ctx, input) => {
         const id = nextId("tag");
-        tags.set(id, {
+        tags.push({
           id,
           matchId: input.matchId,
           hunterId: input.hunterId,
@@ -262,28 +279,21 @@ export function memoryRepos(): Repos {
         });
         return id;
       },
-      patch: async (_ctx, id, patch) => {
-        const row = tags.get(id);
-        if (!row) throw new Error(`tag ${id} not found`);
-        if (patch.captureMode !== undefined) {
-          row.captureMode = patch.captureMode;
-        }
-      },
+      patch: async () => undefined,
       listByMatch: async (_ctx, matchId) =>
-        [...tags.values()].filter((t) => t.matchId === matchId),
+        tags.filter((t) => t.matchId === matchId),
     },
     complaints: {
       create: async (_ctx, input) => {
-        const at = input.nowMs ?? Date.now();
         const row: ComplaintRow = {
           id: nextId("complaint"),
           matchId: input.matchId,
           complainantId: input.complainantId,
           accusedId: input.accusedId,
           note: input.note,
-          createdAt: at,
+          createdAt: Date.now(),
           responseDueAt:
-            at + input.configComplaintResponseMinutes * 60_000,
+            Date.now() + input.configComplaintResponseMinutes * 60_000,
           status: "open",
           resolvedByUserId: null,
           resolvedAt: null,
@@ -348,7 +358,10 @@ export function memoryRepos(): Repos {
     },
     scores: {
       insert: async (_ctx, input) => {
-        scores.push({ ...input, id: nextId("score") });
+        scores.push({
+          ...input,
+          id: nextId("score"),
+        });
       },
       listByPlayer: async (_ctx, matchId, playerId) =>
         scores.filter((s) => s.matchId === matchId && s.playerId === playerId),
@@ -386,7 +399,14 @@ export function memoryRepos(): Repos {
     audit: {
       append: async (_ctx, input) => {
         const id = nextId("audit");
-        audit.push({ ...input, id, targetId: input.targetId ?? null, targetLabel: input.targetLabel ?? null, reason: input.reason ?? null, detail: input.detail ?? null });
+        audit.push({
+          ...input,
+          id,
+          targetId: input.targetId ?? null,
+          targetLabel: input.targetLabel ?? null,
+          reason: input.reason ?? null,
+          detail: input.detail ?? null,
+        });
         return id;
       },
       listByMatch: async (_ctx, matchId) =>
@@ -422,4 +442,400 @@ export function memoryRepos(): Repos {
         events.some((e) => e.matchId === matchId && e.refId === refId),
     },
   };
+
+  return repos;
 }
+
+/* ------------------------------------------------------------------ *\n * Flow\n * ------------------------------------------------------------------ */
+
+const ORGANISER = { lat: 51.5074, lng: -0.1278 };
+
+beforeEach(() => {
+  setReposForTests(memoryRepos());
+});
+
+afterAll(() => {
+  setReposForTests(null);
+});
+
+async function createRoom(invigilators = ["Ines", "Kwame"]) {
+  return await createMatch(null, {
+    createdByUserId: "user-organiser",
+    matchDurationMinutes: 90,
+    organiserLat: ORGANISER.lat,
+    organiserLng: ORGANISER.lng,
+    invigilatorNames: invigilators,
+  });
+}
+
+async function joinPlayers(roomCode: string, count: number, offset = 0) {
+  const joined = [];
+  for (let i = 0; i < count; i += 1) {
+    const index = i + offset;
+    const row = await joinMatch(null, {
+      userId: `user-${index}`,
+      roomCode,
+      callSign: `Runner ${index}`,
+      displayName: `Runner ${index}`,
+      displayNameMode: index % 2 === 0 ? "nickname" : "real",
+    });
+    // Everyone confirms the rules briefing as they join, so the organiser can
+    // start without forcing it.
+    await confirmBriefing(null, {
+      matchId: row.matchId,
+      userId: `user-${index}`,
+    });
+    joined.push(row);
+  }
+  return joined;
+}
+
+/**
+ * Start the setup countdown and then the head start itself. This fixture never
+ * uploads positions, and "no location" is not ready, so the organiser
+ * force-starts the head start — exactly what a real organiser would tap.
+ */
+async function startHeadStart(matchId: string, seed?: number) {
+  await startMatch(null, {
+    matchId,
+    userId: "user-organiser",
+    seed,
+  });
+  return await beginHeadStart(null, {
+    matchId,
+    userId: "user-organiser",
+    force: true,
+  });
+}
+
+describe("create a room", () => {
+  it("gives a five-character code and names 2 invigilators with invites", async () => {
+    const created = await createRoom();
+    expect(created.roomCode).toHaveLength(RULES_CONFIG.roomCodeLength);
+    expect(created.invigilators).toHaveLength(2);
+    for (const invigilator of created.invigilators) {
+      expect(invigilator.inviteCode).toHaveLength(RULES_CONFIG.inviteCodeLength);
+    }
+    expect(created.invigilators[0].inviteCode).not.toBe(
+      created.invigilators[1].inviteCode,
+    );
+  });
+
+  it("picks the centre within 500 m of the organiser", async () => {
+    for (let i = 0; i < 25; i += 1) {
+      const created = await createRoom();
+      const distance = distanceMetres(
+        { lat: created.zone.centreLat, lng: created.zone.centreLng },
+        ORGANISER,
+      );
+      expect(distance).toBeLessThanOrEqual(RULES_CONFIG.centrePickDistanceMetres);
+    }
+  });
+
+  it("refuses a match length outside the configured range", async () => {
+    await expect(
+      createMatch(null, {
+        createdByUserId: "user-organiser",
+        matchDurationMinutes: 30,
+        organiserLat: ORGANISER.lat,
+        organiserLng: ORGANISER.lng,
+        invigilatorNames: ["Ines", "Kwame"],
+      }),
+    ).rejects.toThrow(/between 60 and 180/);
+  });
+
+  it("refuses the wrong number of invigilators", async () => {
+    await expect(createRoom(["Only one"])).rejects.toThrow(/2 and 3/);
+  });
+
+  it("re-rolls the centre but stays within 500 m of the organiser", async () => {
+    const created = await createRoom();
+    const rerolled = await rerollCentre(null, {
+      matchId: created.matchId,
+      organiserUserId: "user-organiser",
+    });
+    const distance = distanceMetres(
+      { lat: rerolled.centreLat, lng: rerolled.centreLng },
+      ORGANISER,
+    );
+    expect(distance).toBeLessThanOrEqual(RULES_CONFIG.centrePickDistanceMetres);
+  });
+
+  it("refuses a re-roll from anyone but the organiser, or after the start", async () => {
+    const created = await createRoom();
+    await joinPlayers(created.roomCode, 4);
+    await expect(
+      rerollCentre(null, {
+        matchId: created.matchId,
+        organiserUserId: "user-0",
+      }),
+    ).rejects.toThrow(/organiser/);
+
+    await startMatch(null, {
+      matchId: created.matchId,
+      userId: "user-organiser",
+      seed: 3,
+    });
+    await expect(
+      rerollCentre(null, {
+        matchId: created.matchId,
+        organiserUserId: "user-organiser",
+      }),
+    ).rejects.toThrow(/fixed once the match starts/);
+  });
+});
+
+describe("join a room", () => {
+  it("joins with a code, a call sign and a leaderboard name choice", async () => {
+    const created = await createRoom();
+    const joined = await joinPlayers(created.roomCode, 4);
+    expect(joined).toHaveLength(4);
+
+    const lobby = await getLobby(null, {
+      userId: "user-0",
+      roomCode: created.roomCode,
+    });
+    expect(lobby.playerCount).toBe(4);
+    expect(lobby.status).toBe("lobby");
+    expect(lobby.players.map((p) => p.callSign)).toContain("Runner 0");
+    expect(lobby.me.callSign).toBe("Runner 0");
+    expect(lobby.me.displayNameMode).toBe("nickname");
+  });
+
+  it("refuses a bad code and a duplicate call sign", async () => {
+    const created = await createRoom();
+    await joinPlayers(created.roomCode, 1);
+
+    await expect(
+      joinMatch(null, {
+        userId: "user-other",
+        roomCode: "ZZZZZ",
+        callSign: "Ghost",
+        displayName: "Ghost",
+        displayNameMode: "nickname",
+      }),
+    ).rejects.toThrow(/No room/);
+
+    await expect(
+      joinMatch(null, {
+        userId: "user-other",
+        roomCode: created.roomCode,
+        callSign: "runner 0",
+        displayName: "Ghost",
+        displayNameMode: "nickname",
+      }),
+    ).rejects.toThrow(/call sign is taken/);
+  });
+
+  it("accepts up to the soft cap and refuses beyond it", async () => {
+    const created = await createRoom();
+    await joinPlayers(created.roomCode, RULES_CONFIG.softCapPlayers);
+    await expect(joinPlayers(created.roomCode, 1, 100)).rejects.toThrow(/full/);
+  });
+});
+
+describe("lock and start", () => {
+  it("refuses joins once the roster is locked, and allows them again after unlock", async () => {
+    const created = await createRoom();
+    await joinPlayers(created.roomCode, 4);
+
+    await setRosterLock(null, {
+      matchId: created.matchId,
+      userId: "user-organiser",
+      locked: true,
+    });
+    await expect(joinPlayers(created.roomCode, 1, 50)).rejects.toThrow(/locked/);
+
+    await setRosterLock(null, {
+      matchId: created.matchId,
+      userId: "user-organiser",
+      locked: false,
+    });
+    await expect(joinPlayers(created.roomCode, 1, 60)).resolves.toHaveLength(1);
+  });
+
+  it("refuses to start below the minimum", async () => {
+    const created = await createRoom();
+    await joinPlayers(created.roomCode, 3);
+    await expect(
+      startMatch(null, { matchId: created.matchId, userId: "user-organiser" }),
+    ).rejects.toThrow(/At least 4/);
+  });
+
+  it("refuses to start unless the organiser asks", async () => {
+    const created = await createRoom();
+    await joinPlayers(created.roomCode, 4);
+    await expect(
+      startMatch(null, { matchId: created.matchId, userId: "user-1" }),
+    ).rejects.toThrow(/organiser/);
+  });
+
+  it("starts at 4 players: setup first, then the head start", async () => {
+    const created = await createRoom();
+    await joinPlayers(created.roomCode, 4);
+    const setup = await startMatch(null, {
+      matchId: created.matchId,
+      userId: "user-organiser",
+      seed: 12345,
+    });
+
+    // Stage 5 add-on: the roster is locked into a setup countdown first.
+    expect(setup.status).toBe("setup");
+    expect(setup.setupEndsAt).not.toBeNull();
+    expect(setup.startedAt).toBeNull();
+    expect(setup.hunters + setup.shadows).toBe(4);
+    expect(setup.hunters).toBeGreaterThanOrEqual(1);
+    expect(setup.shadows).toBeGreaterThanOrEqual(1);
+
+    const started = await beginHeadStart(null, {
+      matchId: created.matchId,
+      userId: "user-organiser",
+      force: true,
+    });
+    expect(started.status).toBe("headstart");
+    expect(started.headStartEndsAt! - started.startedAt!).toBe(
+      RULES_CONFIG.headStartMinutes * 60_000,
+    );
+
+    const lobby = await getLobby(null, {
+      userId: "user-0",
+      roomCode: created.roomCode,
+    });
+    expect(lobby.status).toBe("headstart");
+    expect(lobby.playerCount).toBe(4);
+  });
+
+  it("refuses a join after the match has started", async () => {
+    const created = await createRoom();
+    await joinPlayers(created.roomCode, 4);
+    await startMatch(null, {
+      matchId: created.matchId,
+      userId: "user-organiser",
+      seed: 99,
+    });
+    await expect(joinPlayers(created.roomCode, 1, 70)).rejects.toThrow(
+      /already started/,
+    );
+  });
+
+  it("starts at 20 and 40 players, keeping at least one of each team", async () => {
+    for (const [index, playerCount] of [20, 40].entries()) {
+      setReposForTests(memoryRepos());
+      const created = await createRoom();
+      await joinPlayers(created.roomCode, playerCount);
+      const started = await startMatch(null, {
+        matchId: created.matchId,
+        userId: "user-organiser",
+        seed: 1000 + index,
+      });
+      expect(started.hunters + started.shadows).toBe(playerCount);
+      expect(started.hunters).toBeGreaterThanOrEqual(1);
+      expect(started.shadows).toBeGreaterThanOrEqual(1);
+    }
+  });
+});
+
+describe("invigilators", () => {
+  it("are attached through their invite and are not players", async () => {
+    const created = await createRoom();
+    await joinPlayers(created.roomCode, 4);
+    const invite = created.invigilators[0].inviteCode;
+
+    const preview = await previewInvite(null, invite);
+    expect(preview.roomCode).toBe(created.roomCode);
+    expect(preview.displayName).toBe("Ines");
+
+    await claimInvite(null, { userId: "user-invigilator", inviteCode: invite });
+
+    const lobby = await getLobby(null, {
+      userId: "user-invigilator",
+      roomCode: created.roomCode,
+    });
+    expect(lobby.me.isInvigilator).toBe(true);
+    expect(lobby.me.playerId).toBeNull();
+    expect(lobby.playerCount).toBe(4);
+  });
+
+  it("only shows invite codes to the organiser", async () => {
+    const created = await createRoom();
+    await joinPlayers(created.roomCode, 4);
+
+    const asOrganiser = await getLobby(null, {
+      userId: "user-organiser",
+      roomCode: created.roomCode,
+    });
+    expect(asOrganiser.invigilators[0].inviteCode).not.toBeNull();
+
+    const asPlayer = await getLobby(null, {
+      userId: "user-0",
+      roomCode: created.roomCode,
+    });
+    expect(asPlayer.invigilators[0].inviteCode).toBeNull();
+  });
+
+  it("refuses an unknown invite code", async () => {
+    await expect(previewInvite(null, "ZZZZZZ")).rejects.toThrow(/not valid/);
+  });
+});
+
+describe("position uploads are separate from the ping", () => {
+  it("refuses uploads during the head start", async () => {
+    const created = await createRoom();
+    await joinPlayers(created.roomCode, 4);
+    await startHeadStart(created.matchId, 7);
+
+    const upload = await uploadPosition(null, {
+      matchId: created.matchId,
+      userId: "user-0",
+      lat: ORGANISER.lat,
+      lng: ORGANISER.lng,
+      accuracyMetres: 8,
+    });
+    expect(upload.stored).toBe(false);
+    expect(upload.reason).toBe("not_started");
+  });
+
+  it("stores uploads every few seconds once live", async () => {
+    const created = await createRoom();
+    await joinPlayers(created.roomCode, 4);
+    await startHeadStart(created.matchId, 8);
+
+    // Pretend the five-minute head start has just ended.
+    const repos = (await import("../providers")).getRepos();
+    await repos.matches.patch(null, created.matchId, {
+      startedAt: Date.now() - RULES_CONFIG.headStartMinutes * 60_000 - 1_000,
+    });
+
+    const first = await uploadPosition(null, {
+      matchId: created.matchId,
+      userId: "user-0",
+      lat: ORGANISER.lat,
+      lng: ORGANISER.lng,
+      accuracyMetres: 8,
+    });
+    expect(first.stored).toBe(true);
+
+    const tooSoon = await uploadPosition(null, {
+      matchId: created.matchId,
+      userId: "user-0",
+      lat: ORGANISER.lat,
+      lng: ORGANISER.lng,
+      accuracyMetres: 8,
+    });
+    expect(tooSoon.stored).toBe(false);
+    expect(tooSoon.reason).toBe("too_soon");
+
+    const after = await uploadPosition(null, {
+      matchId: created.matchId,
+      userId: "user-0",
+      lat: ORGANISER.lat,
+      lng: ORGANISER.lng,
+      accuracyMetres: 8,
+    });
+    // Still within a few seconds, but nowhere near the 3 minute ping interval.
+    expect(after.reason).toBe("too_soon");
+    expect(after.nextAllowedAtMs).toBeLessThanOrEqual(
+      Date.now() + RULES_CONFIG.uploadIntervalSeconds * 1000,
+    );
+  });
+});

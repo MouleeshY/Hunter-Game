@@ -12,9 +12,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test"
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createApiHarness, TICK_SECRET, type ApiHarness } from "./testSupport/apiHarness";
-import { createApiApp } from "../../api/app";
-import { nudgeChannelName, nudgeMessage } from "../lib/realtime";
-import { REFRESH_INTERVALS, RULES_CONFIG } from "../rules";
+import { createApiApp } from "../../../api/app";
+import { nudgeChannelName, nudgeMessage } from "../../lib/realtime";
+import { REFRESH_INTERVALS, RULES_CONFIG } from "../../rules";
 
 const ORGANISER = "11111111-1111-4111-8111-111111111111";
 const INVIGILATOR = "22222222-2222-4222-8222-222222222222";
