@@ -50,6 +50,9 @@ export const createRoom = mutation({
       ),
     ),
     proximityDetection: v.optional(v.boolean()),
+    /** Optional, shown on the public result page (Stage 6). */
+    title: v.optional(v.string()),
+    clubName: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx);
@@ -61,6 +64,8 @@ export const createRoom = mutation({
       invigilatorNames: args.invigilatorNames,
       defaultCaptureMode: args.defaultCaptureMode,
       proximityDetection: args.proximityDetection,
+      title: args.title,
+      clubName: args.clubName,
     });
   },
 });

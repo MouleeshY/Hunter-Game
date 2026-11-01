@@ -19,3 +19,5 @@ export * from "./rooms";
 export * from "./complaints";
 export * from "./teams";
 export * from "./visibility";
+export * from "./publication";
+export * from "./stats";

@@ -132,4 +132,8 @@ export const matchConfigValidator = v.object({
   hunterTagPointsFloor: v.number(),
   allTaggedBonusPerHunter: v.number(),
   survivalBonusPerShadow: v.number(),
+
+  publicSlugBytes: v.number(),
+  matchTitleMaxLength: v.number(),
+  clubNameMaxLength: v.number(),
 });

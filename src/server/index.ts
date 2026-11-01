@@ -82,6 +82,10 @@ async function requireMatchByCode(
 export interface CreatedMatch {
   matchId: string;
   roomCode: string;
+  /** Random public link id; the page stays closed until the result is public. */
+  publicSlug: string;
+  title: string | null;
+  clubName: string | null;
   zone: { centreLat: number; centreLng: number; initialRadiusMetres: number };
   invigilators: { displayName: string; inviteCode: string }[];
 }
@@ -104,6 +108,9 @@ export async function createMatch(
     defaultCaptureMode?: PlayerMode;
     /** Setup preset: switch the proximity alerts off for this match. */
     proximityDetection?: boolean;
+    /** Optional title and club name, shown on the public result page. */
+    title?: string;
+    clubName?: string;
   },
 ): Promise<CreatedMatch> {
   const repos = getRepos();
@@ -132,6 +139,19 @@ export async function createMatch(
 
   assertLatLng(input.organiserLat, input.organiserLng);
 
+  const title = (input.title ?? "").trim();
+  if (title.length > config.matchTitleMaxLength) {
+    throw new Error(
+      `A match title can be at most ${config.matchTitleMaxLength} characters.`,
+    );
+  }
+  const clubName = (input.clubName ?? "").trim();
+  if (clubName.length > config.clubNameMaxLength) {
+    throw new Error(
+      `A club name can be at most ${config.clubNameMaxLength} characters.`,
+    );
+  }
+
   const centre = randomZoneCentre({
     organiserLat: input.organiserLat,
     organiserLng: input.organiserLng,
@@ -152,6 +172,21 @@ export async function createMatch(
     throw new Error("Could not allocate a room code. Please try again.");
   }
 
+  // The public link id is drawn from the same CSPRNG, never from the room code:
+  // five characters are guessable in a few thousand tries, 128 bits are not.
+  let publicSlug = "";
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const candidate = randomToken(config.publicSlugBytes);
+    const existing = await repos.matches.findByPublicSlug(ctx, candidate);
+    if (!existing) {
+      publicSlug = candidate;
+      break;
+    }
+  }
+  if (publicSlug === "") {
+    throw new Error("Could not allocate a result link. Please try again.");
+  }
+
   const initialRadiusMetres = radiusForPlayerCount(
     config.minPlayers,
     config,
@@ -159,6 +194,9 @@ export async function createMatch(
 
   const match = await repos.matches.create(ctx, {
     roomCode,
+    publicSlug,
+    title: title === "" ? null : title,
+    clubName: clubName === "" ? null : clubName,
     status: "lobby",
     config: {
       ...config,
@@ -192,6 +230,9 @@ export async function createMatch(
   return {
     matchId: match.id,
     roomCode: match.roomCode,
+    publicSlug,
+    title: match.title,
+    clubName: match.clubName,
     zone: {
       centreLat: centre.lat,
       centreLng: centre.lng,
@@ -807,4 +848,11 @@ export {
   abortMatch,
   statusAfterCapture,
 } from "./console";
-export { recordEvent, raiseHelpAlert } from "./events";
+export {
+  recordEvent,
+  raiseHelpAlert,
+  getFeedView,
+  type FeedAlert,
+  type FeedItem,
+  type FeedView,
+} from "./events";

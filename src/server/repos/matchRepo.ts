@@ -15,6 +15,13 @@ export interface MatchRow {
   id: string;
   /** Five-character join code. */
   roomCode: string;
+  /** Random public link id (never the room code), or null for pre-Stage-6 rows. */
+  publicSlug: string | null;
+  /** Optional title and club name on the public result page. */
+  title: string | null;
+  clubName: string | null;
+  /** Organiser override; null means the default publication applies. */
+  published: boolean | null;
   status: MatchStatus;
   config: MatchConfig;
   createdAt: number;
@@ -49,6 +56,10 @@ export interface MatchRow {
 export interface MatchRepository {
   findById(ctx: RepoContext, id: string): Promise<MatchRow | null>;
   findByRoomCode(ctx: RepoContext, roomCode: string): Promise<MatchRow | null>;
+  /** Public result link lookup; the slug is random, never the room code. */
+  findByPublicSlug(ctx: RepoContext, slug: string): Promise<MatchRow | null>;
+  /** Every ended match, oldest first: the public list filters and sorts these. */
+  listEnded(ctx: RepoContext): Promise<MatchRow[]>;
   /** Matches that ended before `endedBeforeMs`, for position cleanup. */
   listEndedBefore(
     ctx: RepoContext,
@@ -63,6 +74,9 @@ export interface MatchRepository {
     ctx: RepoContext,
     input: {
       roomCode: string;
+      publicSlug: string;
+      title: string | null;
+      clubName: string | null;
       status: MatchStatus;
       config: MatchConfig;
       createdByUserId: string | null;
@@ -92,6 +106,10 @@ export interface MatchRepository {
       rosterLocked?: boolean;
       zoneCentre?: LatLng;
       initialRadiusMetres?: number;
+      title?: string | null;
+      clubName?: string | null;
+      /** null clears the override and returns to the default. */
+      published?: boolean | null;
     },
   ): Promise<void>;
 }

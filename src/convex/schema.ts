@@ -53,6 +53,19 @@ const schema = defineSchema(
     matches: defineTable({
       /** Five-character code players type to join. Unique while open. */
       roomCode: v.string(),
+      /**
+       * Public result link id (Stage 6): a random 128-bit hex slug, never
+       * derived from the room code. The page 404s until the result is public.
+       */
+      publicSlug: v.optional(v.string()),
+      /** Optional, set by the organiser at setup; shown on the result page. */
+      title: v.optional(v.string()),
+      clubName: v.optional(v.string()),
+      /**
+       * The organiser's publishing choice: true = public, false = hidden.
+       * Absent means the default applies (public once ended, unless aborted).
+       */
+      published: v.optional(v.boolean()),
       status: matchStatusValidator,
       config: matchConfigValidator,
       createdAt: v.number(),
@@ -108,7 +121,8 @@ const schema = defineSchema(
       endReason: v.optional(matchEndReasonValidator),
     })
       .index("by_status", ["status"])
-      .index("by_room_code", ["roomCode"]),
+      .index("by_room_code", ["roomCode"])
+      .index("by_public_slug", ["publicSlug"]),
 
     /* ---------------------------------------------------------------- *
      * Players — a person's place in one match.

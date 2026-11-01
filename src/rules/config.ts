@@ -183,6 +183,20 @@ export interface MatchConfig {
   allTaggedBonusPerHunter: number;
   /** [RULE] Shadow survives to the end: 100 bonus per surviving Shadow. */
   survivalBonusPerShadow: number;
+
+  // ---- Public results ------------------------------------------------------
+
+  /**
+   * [TUNED] Length of the public result link's random id, in bytes (hex, so
+   * twice this many characters). It is drawn from the browser's CSPRNG and is
+   * never derived from the room code: a short code can be guessed, a 128-bit
+   * slug cannot.
+   */
+  publicSlugBytes: number;
+  /** [TUNED] Longest match title shown on the result page. */
+  matchTitleMaxLength: number;
+  /** [TUNED] Longest club name shown on the result page and the list. */
+  clubNameMaxLength: number;
 }
 
 export const RULES_CONFIG: MatchConfig = {
@@ -258,4 +272,8 @@ export const RULES_CONFIG: MatchConfig = {
   hunterTagPointsFloor: 40,
   allTaggedBonusPerHunter: 150,
   survivalBonusPerShadow: 100,
+
+  publicSlugBytes: 16,
+  matchTitleMaxLength: 80,
+  clubNameMaxLength: 60,
 };

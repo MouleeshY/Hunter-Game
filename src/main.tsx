@@ -21,6 +21,7 @@ const AuthPage = lazy(() => import("./pages/Auth.tsx"));
 const Play = lazy(() => import("./pages/Play.tsx"));
 const Monitor = lazy(() => import("./pages/Monitor.tsx"));
 const Match = lazy(() => import("./pages/Match.tsx"));
+const Results = lazy(() => import("./pages/Results.tsx"));
 const Demo = lazy(() => import("./demo/Demo.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
@@ -154,6 +155,9 @@ createRoot(document.getElementById("root")!).render(
                   </RequireAuth>
                 }
               />
+              {/* Public: no account needed, noindex, unguessable link. */}
+              <Route path="/results" element={<Results />} />
+              <Route path="/results/:matchSlug" element={<Results />} />
               <Route
                 path="/monitor"
                 element={

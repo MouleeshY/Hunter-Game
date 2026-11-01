@@ -22,6 +22,7 @@ import {
   endMatch,
   extendSetup,
   fileComplaint,
+  getFeedView,
   getConsoleView,
   getLobby,
   getMapView,
@@ -912,6 +913,158 @@ describe("ending a match", () => {
     expect(tag.playerId).toBe(shadow.id);
     expect(tag.actorId).toBe(hunter.id);
     expect(JSON.stringify(tag)).not.toContain("P0");
+  });
+});
+
+// -----------------------------------------------------------------------------
+// The feed read path (moved behind the repositories in Stage 6)
+// -----------------------------------------------------------------------------
+
+describe("the live feed read path", () => {
+  async function liveMatchWithTag() {
+    const created = await createRoom(6);
+    await startMatch(null, { matchId: created.matchId, userId: ORGANISER });
+    await beginHeadStart(null, {
+      matchId: created.matchId,
+      userId: ORGANISER,
+      force: true,
+    });
+    await makeLive(created.matchId);
+    await claimInvite(null, {
+      userId: INVIGILATOR,
+      inviteCode: created.invigilators[0].inviteCode,
+    });
+
+    const players = await playerRows(created.matchId);
+    const hunter = players.find((p) => p.role === "hunter")!;
+    const shadow = players.find((p) => p.role === "shadow")!;
+    await forceTag(null, {
+      matchId: created.matchId,
+      hunterId: hunter.id,
+      shadowId: shadow.id,
+      userId: INVIGILATOR,
+      reason: "Refused to show the code.",
+    });
+
+    return { created, hunter, shadow, players };
+  }
+
+  it("hides who caught whom until the match has ended, then names both", async () => {
+    const { created, hunter, shadow } = await liveMatchWithTag();
+
+    const live = await getFeedView(null, {
+      matchId: created.matchId,
+      userId: "user-0",
+    });
+    expect(live.ended).toBe(false);
+    expect(live.items.map((item) => item.text)).toContain(
+      "A Shadow was caught.",
+    );
+
+    const duringMatch = JSON.stringify(live.items);
+    expect(duringMatch).not.toContain(hunter.callSign);
+    expect(duringMatch).not.toContain(shadow.callSign);
+
+    await endMatch(null, { matchId: created.matchId, force: true });
+
+    const ended = await getFeedView(null, {
+      matchId: created.matchId,
+      userId: "user-0",
+    });
+    expect(ended.ended).toBe(true);
+    expect(ended.items.map((item) => item.text)).toContain(
+      `${hunter.callSign} caught ${shadow.callSign}.`,
+    );
+  });
+
+  it("delivers a detection alert to the two players involved and no one else", async () => {
+    const { created, players } = await liveMatchWithTag();
+    const hunter = players.find((p) => p.role === "hunter")!;
+    // The Shadow tagged above is out of play; a free one walks into a Hunter.
+    const shadow = players.find(
+      (p) => p.role === "shadow" && p.status === "active",
+    )!;
+    const spot = { lat: created.zone.centreLat, lng: created.zone.centreLng };
+
+    // A different pair meets, far from anyone else.
+    await uploadPosition(null, {
+      matchId: created.matchId,
+      userId: shadow.userId,
+      lat: spot.lat,
+      lng: spot.lng,
+      accuracyMetres: 5,
+    });
+    await uploadPosition(null, {
+      matchId: created.matchId,
+      userId: hunter.userId,
+      lat: spot.lat + 0.0002,
+      lng: spot.lng,
+      accuracyMetres: 5,
+    });
+
+    const asHunter = await getFeedView(null, {
+      matchId: created.matchId,
+      userId: hunter.userId,
+    });
+    const asShadow = await getFeedView(null, {
+      matchId: created.matchId,
+      userId: shadow.userId,
+    });
+    expect(asHunter.alerts).toHaveLength(1);
+    expect(asHunter.alerts[0].from).toBe("shadow");
+    expect(asShadow.alerts).toHaveLength(1);
+    expect(asShadow.alerts[0].from).toBe("hunter");
+
+    const otherPlayers = (await playerRows(created.matchId)).filter(
+      (player) => player.id !== hunter.id && player.id !== shadow.id,
+    );
+    for (const player of otherPlayers) {
+      const view = await getFeedView(null, {
+        matchId: created.matchId,
+        userId: player.userId,
+      });
+      expect(view.alerts).toHaveLength(0);
+    }
+
+    // Staff read the console, not the phone feed.
+    const staffView = await getFeedView(null, {
+      matchId: created.matchId,
+      userId: INVIGILATOR,
+    });
+    expect(staffView.alerts).toHaveLength(0);
+  });
+
+  it("never carries a position, a token or an id in a feed row", async () => {
+    const { created, hunter, shadow } = await liveMatchWithTag();
+    const spot = { lat: created.zone.centreLat + 0.001, lng: created.zone.centreLng - 0.002 };
+
+    await raiseHelpAlert(null, {
+      matchId: created.matchId,
+      userId: "user-2",
+      lat: spot.lat,
+      lng: spot.lng,
+      accuracyMetres: 8,
+    });
+
+    const view = await getFeedView(null, {
+      matchId: created.matchId,
+      userId: hunter.userId,
+    });
+    expect(view.items.length).toBeGreaterThan(0);
+    for (const item of view.items) {
+      expect(Object.keys(item).sort()).toEqual(["at", "id", "kind", "text"]);
+    }
+    for (const alert of view.alerts) {
+      expect(Object.keys(alert).sort()).toEqual(["at", "band", "from", "id"]);
+    }
+
+    const json = JSON.stringify(view);
+    expect(json).not.toContain("lat");
+    expect(json).not.toContain("lng");
+    expect(json).not.toContain(String(spot.lat));
+    expect(json).not.toContain(String(spot.lng));
+    expect(json).not.toContain(shadow.qrToken);
+    expect(json).not.toContain(created.roomCode);
   });
 });
 

@@ -33,6 +33,12 @@ export function memoryRepos(): Repos {
       findById: async (_ctx, id) => matches.get(id) ?? null,
       findByRoomCode: async (_ctx, roomCode) =>
         [...matches.values()].find((m) => m.roomCode === roomCode) ?? null,
+      findByPublicSlug: async (_ctx, slug) =>
+        [...matches.values()].find((m) => m.publicSlug === slug) ?? null,
+      listEnded: async () =>
+        [...matches.values()]
+          .filter((m) => m.status === "ended")
+          .sort((a, b) => (a.endedAt ?? 0) - (b.endedAt ?? 0)),
       listEndedBefore: async (_ctx, endedBeforeMs) =>
         [...matches.values()].filter(
           (m) => m.status === "ended" && (m.endedAt ?? Infinity) < endedBeforeMs,
@@ -48,6 +54,10 @@ export function memoryRepos(): Repos {
         const row: MatchRow = {
           id: nextId("match"),
           roomCode: input.roomCode,
+          publicSlug: input.publicSlug,
+          title: input.title,
+          clubName: input.clubName,
+          published: null,
           status: input.status,
           config: input.config,
           createdAt: Date.now(),
@@ -96,6 +106,9 @@ export function memoryRepos(): Repos {
         if (patch.winner !== undefined) row.winner = patch.winner;
         if (patch.endReason !== undefined) row.endReason = patch.endReason;
         if (patch.endedAt !== undefined) row.endedAt = patch.endedAt;
+        if (patch.title !== undefined) row.title = patch.title;
+        if (patch.clubName !== undefined) row.clubName = patch.clubName;
+        if (patch.published !== undefined) row.published = patch.published;
         if (patch.zoneCentre !== undefined) row.zoneCentre = patch.zoneCentre;
         if (patch.initialRadiusMetres !== undefined) {
           row.initialRadiusMetres = patch.initialRadiusMetres;

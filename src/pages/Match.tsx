@@ -98,6 +98,13 @@ export default function Match() {
   const setupActive = status === "setup";
   const live = status === "live";
 
+  // Stage 6: the frozen end screen's own numbers (points breakdown, rank, who
+  // caught whom). Loaded only once the whistle has gone.
+  const myResult = useQuery(
+    api.results.mine,
+    ended && matchId ? { matchId: matchId as Id<"matches"> } : "skip",
+  );
+
   // Countdowns run on the server clock, never the phone's.
   const now = useServerClock({
     serverNowMs: view?.serverNowMs ?? null,
@@ -376,7 +383,11 @@ export default function Match() {
 
         {/* ---- Frozen end state ------------------------------------------- */}
         {ended ? (
-          <MatchEnded view={view} onBack={() => navigate("/play")} />
+          <MatchEnded
+            view={view}
+            result={myResult ?? null}
+            onBack={() => navigate("/play")}
+          />
         ) : (
           <>
             {needsBriefing && (

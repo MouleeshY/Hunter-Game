@@ -28,6 +28,9 @@ const createMatchSchema = z.object({
   invigilatorThree: z.string().optional(),
   defaultCaptureMode: z.enum(["spectator", "hunter", "helper"]),
   proximityDetection: z.boolean(),
+  /** Optional: shown on the public result page (Stage 6). */
+  matchTitle: z.string().max(RULES_CONFIG.matchTitleMaxLength),
+  clubName: z.string().max(RULES_CONFIG.clubNameMaxLength),
 });
 
 const joinMatchSchema = z.object({
@@ -119,6 +122,8 @@ function CreateRoomForm({
       invigilatorThree: "",
       defaultCaptureMode: RULES_CONFIG.defaultCaptureMode,
       proximityDetection: RULES_CONFIG.proximityDetectionEnabled,
+      matchTitle: "",
+      clubName: "",
     },
   });
 
@@ -138,6 +143,8 @@ function CreateRoomForm({
         invigilatorNames: names,
         defaultCaptureMode: values.defaultCaptureMode,
         proximityDetection: values.proximityDetection,
+        title: values.matchTitle,
+        clubName: values.clubName,
       });
       onCreated(created.roomCode);
     } catch (cause) {
@@ -158,6 +165,28 @@ function CreateRoomForm({
       </p>
       <form onSubmit={submit}>
         <div className="grid gap-5">
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Field
+              label="Match title (optional)"
+              hint={`Up to ${RULES_CONFIG.matchTitleMaxLength} characters, shown on the public result`}
+            >
+              <Input
+                autoComplete="off"
+                placeholder="Autumn Night Run"
+                {...form.register("matchTitle")}
+              />
+            </Field>
+            <Field
+              label="Club name (optional)"
+              hint={`Up to ${RULES_CONFIG.clubNameMaxLength} characters; groups your results`}
+            >
+              <Input
+                autoComplete="off"
+                placeholder="Northside Runners"
+                {...form.register("clubName")}
+              />
+            </Field>
+          </div>
           <div className="grid gap-5 sm:grid-cols-2">
             <Field
               label="Match length (minutes)"
@@ -465,6 +494,14 @@ function LobbyView({
   const abortRoom = useMutation(api.rooms.abortRoom);
   const pauseRoom = useMutation(api.rooms.pauseRoom);
   const resumeRoom = useMutation(api.rooms.resumeRoom);
+  const publishResult = useMutation(api.results.publish);
+  // Stage 6: the organiser's result link and publishing switch, once ended.
+  const resultTools = useQuery(
+    api.results.manage,
+    lobby && lobby.me.isOrganiser && lobby.status === "ended" && lobby.matchId
+      ? { matchId: lobby.matchId as never }
+      : "skip",
+  );
   const now = useNow();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -786,6 +823,57 @@ function LobbyView({
             Everyone to your starting position — the clock, the zone and the
             scoring are stopped. The spacing check is on the match screen.
           </p>
+        </div>
+      )}
+
+      {lobby.status === "ended" && resultTools && (
+        <div className="rounded-xl border border-hairline p-6">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+              Public result
+            </p>
+            <p className="text-[12px] text-muted-foreground">
+              {resultTools.public
+                ? "Published — anyone with the link can read it"
+                : resultTools.automatic
+                  ? "Private — an aborted match is only published when you choose"
+                  : "Hidden — only you can open it"}
+            </p>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <Button
+              type="button"
+              variant={resultTools.public ? "outline" : "default"}
+              size="lg"
+              disabled={busy || !resultTools.canPublish}
+              className="h-11 uppercase tracking-[0.18em]"
+              onClick={() =>
+                run(
+                  () =>
+                    publishResult({
+                      matchId: resultTools.matchId as never,
+                      publish: !resultTools.public,
+                    }),
+                  "Could not change the result's visibility.",
+                )
+              }
+            >
+              {resultTools.public ? "Unpublish result" : "Publish result"}
+            </Button>
+            <Button
+              asChild
+              variant="outline"
+              size="lg"
+              className="h-11 uppercase tracking-[0.18em]"
+            >
+              <Link to={`/results/${resultTools.slug}`}>
+                Open result page
+              </Link>
+            </Button>
+            <p className="text-[12px] text-muted-foreground">
+              The result page has the QR code and the CSV download.
+            </p>
+          </div>
         </div>
       )}
 

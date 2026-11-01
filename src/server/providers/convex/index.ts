@@ -63,6 +63,10 @@ function matchRow(m: Doc<"matches">): MatchRow {
   return {
     id: m._id,
     roomCode: m.roomCode,
+    publicSlug: m.publicSlug ?? null,
+    title: m.title ?? null,
+    clubName: m.clubName ?? null,
+    published: m.published ?? null,
     status: m.status,
     config: m.config,
     createdAt: m.createdAt,
@@ -197,6 +201,24 @@ export const matchRepo: MatchRepository = {
     return doc ? matchRow(doc) : null;
   },
 
+  findByPublicSlug: async (ctx, slug) => {
+    const doc = await reader(ctx)
+      .query("matches")
+      .withIndex("by_public_slug", (q) => q.eq("publicSlug", slug))
+      .first();
+    return doc ? matchRow(doc) : null;
+  },
+
+  listEnded: async (ctx) => {
+    const docs = await reader(ctx)
+      .query("matches")
+      .withIndex("by_status", (q) => q.eq("status", "ended"))
+      .collect();
+    return docs
+      .map(matchRow)
+      .sort((a, b) => (a.endedAt ?? 0) - (b.endedAt ?? 0));
+  },
+
   listEndedBefore: async (ctx, endedBeforeMs) => {
     const docs = await reader(ctx)
       .query("matches")
@@ -230,6 +252,9 @@ export const matchRepo: MatchRepository = {
     const createdAt = Date.now();
     const id = await db.insert("matches", {
       roomCode: input.roomCode,
+      publicSlug: input.publicSlug,
+      title: input.title ?? undefined,
+      clubName: input.clubName ?? undefined,
       status: input.status,
       config: input.config,
       createdAt,
@@ -274,6 +299,9 @@ export const matchRepo: MatchRepository = {
       endedAt?: number;
       endReason?: NonNullable<MatchRow["endReason"]>;
       rosterLocked?: boolean;
+      title?: string;
+      clubName?: string;
+      published?: boolean;
       zone?: { centreLat: number; centreLng: number; initialRadiusMetres: number };
     } = {};
 
@@ -316,6 +344,11 @@ export const matchRepo: MatchRepository = {
     }
     if (patch.aliveUpToMinute !== undefined && patch.aliveUpToMinute !== null) {
       next.aliveUpToMinute = patch.aliveUpToMinute;
+    }
+    if (patch.title !== undefined) next.title = patch.title ?? undefined;
+    if (patch.clubName !== undefined) next.clubName = patch.clubName ?? undefined;
+    if (patch.published !== undefined) {
+      next.published = patch.published ?? undefined;
     }
     if (patch.zoneCentre !== undefined || patch.initialRadiusMetres !== undefined) {
       next.zone = {
