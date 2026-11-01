@@ -64,6 +64,7 @@ import {
   setResultPublished,
 } from "../src/server/results";
 import { runMatchTick } from "../src/server/scheduler";
+import { setReposForTests } from "../src/server/providers";
 import type { PostgresProvider } from "../src/server/providers/postgres";
 import type { RepoContext } from "../src/server/repos/context";
 import {
@@ -102,6 +103,12 @@ function isServiceError(cause: unknown): cause is Error {
 export function createApiApp(deps: ApiDeps): Hono {
   const app = new Hono();
   const { provider, verify, tickSecret } = deps;
+
+  // Services resolve their repositories through `getRepos()`, which picks the
+  // provider from `DATA_PROVIDER`. This process serves HTTP against the
+  // provider handed to it, so point the shared accessor at it: that also lets
+  // the tests drive the API against PGlite instead of a real Supabase project.
+  setReposForTests(provider.repos);
 
   function route<A>(spec: RouteSpec<A>): void {
     const handle = async (body: unknown, header: (name: string) => string | null): Promise<{ status: number; json: unknown }> => {

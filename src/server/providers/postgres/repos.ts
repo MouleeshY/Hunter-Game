@@ -734,7 +734,7 @@ export const tagRepo: TagRepository = {
   listByMatch: async (ctx, matchId) => {
     const rows = await query(
       ctx,
-      `select * from tags where match_id = $1::uuid order by "at" asc, id asc`,
+      `select * from tags where match_id = $1::uuid order by "at" asc, id asc${lock(ctx)}`,
       [matchId],
     );
     return rows.map(tagRow);

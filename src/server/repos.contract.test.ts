@@ -209,8 +209,8 @@ function repositoryContract(harness: Harness): void {
       );
 
       const now = Date.now();
-      await harness.write((ctx, repos) => {
-        repos.matches.patch(ctx, old.id, {
+      await harness.write(async (ctx, repos) => {
+        await repos.matches.patch(ctx, old.id, {
           status: "ended",
           endedAt: now - 60 * MINUTE,
           endReason: "timer_expired",
@@ -319,8 +319,8 @@ function repositoryContract(harness: Harness): void {
       );
 
       const taggedAt = Date.now();
-      await harness.write((ctx, repos) => {
-        repos.players.patch(ctx, player.id, {
+      await harness.write(async (ctx, repos) => {
+        await repos.players.patch(ctx, player.id, {
           status: "tagged",
           points: 140,
           taggedAt,
@@ -553,9 +553,9 @@ function repositoryContract(harness: Harness): void {
       );
       expect(found?.id).toBe(invite.id);
 
-      await harness.write((ctx, repos) => {
-        repos.invigilators.claim(ctx, invite.id, USER_B);
-        repos.invigilators.patchActive(ctx, invite.id, false);
+      await harness.write(async (ctx, repos) => {
+        await repos.invigilators.claim(ctx, invite.id, USER_B);
+        await repos.invigilators.patchActive(ctx, invite.id, false);
       });
 
       const [byUser, listed] = await harness.read((ctx, repos) =>

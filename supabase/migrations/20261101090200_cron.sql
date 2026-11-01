@@ -74,7 +74,7 @@ begin
   end if;
 
   perform net.http_post(
-    url := base_url || '/api/maintenance/purge-positions',
+    url := base_url || '/api/maintenance/purgePositions',
     headers := jsonb_build_object(
       'content-type', 'application/json',
       'x-tick-secret', secret
