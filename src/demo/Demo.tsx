@@ -4,7 +4,7 @@ import { Arena } from "@/demo/Arena";
 import { Lobby } from "@/demo/Lobby";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useAuth } from "@/hooks/use-auth";
+import { useAuth } from "@/hooks/useAuth";
 import { createRoster, TOTAL_PLAYERS, type RosterEntry } from "@/demo/game";
 import { LogOut } from "lucide-react";
 

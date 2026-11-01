@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Radar } from "@/demo/Radar";
 import { Results } from "@/demo/Results";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { useIsMobile } from "@/hooks/useMobile";
 import { Button } from "@/components/ui/button";
 import {
   DETECT_RANGE,

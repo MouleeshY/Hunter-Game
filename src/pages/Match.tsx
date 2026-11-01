@@ -15,7 +15,7 @@ import { EventFeed } from "@/components/match/EventFeed";
 import { MatchEnded } from "@/components/match/MatchEnded";
 import { MatchHud } from "@/components/match/MatchHud";
 import { SetupPanel } from "@/components/match/SetupPanel";
-import { StaffPanel } from "@/components/match/StaffPanel";
+import { StaffPanel } from "@/components/console/StaffPanel";
 import { useConnection } from "@/hooks/useConnection";
 import { useMatchAlerts } from "@/hooks/useMatchAlerts";
 import { useGeolocation, useWakeLock } from "@/hooks/useGeolocation";

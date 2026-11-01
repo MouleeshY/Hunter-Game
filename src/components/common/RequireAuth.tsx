@@ -7,7 +7,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { useAuth } from "@/hooks/use-auth";
+import { useAuth } from "@/hooks/useAuth";
 import { Loader2, Lock } from "lucide-react";
 import type { ReactNode } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router";

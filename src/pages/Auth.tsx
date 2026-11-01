@@ -14,7 +14,7 @@ import {
   InputOTPSlot,
 } from "@/components/ui/input-otp";
 
-import { useAuth } from "@/hooks/use-auth";
+import { useAuth } from "@/hooks/useAuth";
 import { ArrowRight, Loader2, Mail, UserX } from "lucide-react";
 
 const appLogo = "/logo.svg";
