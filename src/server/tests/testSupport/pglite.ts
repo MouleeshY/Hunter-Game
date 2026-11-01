@@ -74,7 +74,7 @@ export function pgliteDb(db: PGlite): Db {
 }
 
 export function migrationsDir(): string {
-  return fileURLToPath(new URL("../../../supabase/migrations", import.meta.url));
+  return fileURLToPath(new URL("../../../../supabase/migrations", import.meta.url));
 }
 
 /**

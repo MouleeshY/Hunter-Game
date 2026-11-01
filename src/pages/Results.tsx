@@ -487,7 +487,7 @@ function ResultList() {
         </p>
       ) : (
         <ul className="mt-6 grid gap-3">
-          {results.map((row) => {
+          {results.map((row: (typeof results)[number]) => {
             const line = headline(row);
             return (
               <li key={row.slug}>

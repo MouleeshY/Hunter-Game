@@ -651,7 +651,7 @@ function LobbyView({
                 No one has joined yet.
               </li>
             )}
-            {lobby.players.map((player) => (
+            {lobby.players.map((player: (typeof lobby.players)[number]) => (
               <li
                 key={player.id}
                 className="flex items-center justify-between border-b border-hairline pb-2 text-[14px] last:border-0"
@@ -672,7 +672,7 @@ function LobbyView({
             Invigilators
           </p>
           <ul className="mt-4 grid gap-3">
-            {lobby.invigilators.map((invigilator) => (
+            {lobby.invigilators.map((invigilator: (typeof lobby.invigilators)[number]) => (
               <li key={invigilator.displayName} className="text-[14px]">
                 <p>{invigilator.displayName}</p>
                 {invigilator.inviteCode ? (
@@ -765,7 +765,7 @@ function LobbyView({
             </p>
           </div>
           <ul className="mt-3 grid gap-1 sm:grid-cols-2">
-            {lobby.staff.players.map((player) => {
+            {lobby.staff.players.map((player: (typeof lobby.staff.players)[number]) => {
               const age =
                 player.lastUploadAtMs === null
                   ? null

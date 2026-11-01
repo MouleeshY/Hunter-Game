@@ -18,7 +18,6 @@ import {
   type TestDatabase,
 } from "./testSupport/pglite";
 import { getRepos, setReposForTests } from "../providers";
-import { createPostgresProvider, type PostgresProvider } from "../providers/postgres";
 import type { Repos, RepoContext } from "../repos";
 import { RULES_CONFIG } from "../../rules";
 

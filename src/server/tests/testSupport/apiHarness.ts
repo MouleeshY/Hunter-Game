@@ -5,7 +5,7 @@
  * deployed Supabase project.
  */
 import { SignJWT } from "jose";
-import { createApiApp } from "../../../api/app";
+import { createApiApp } from "../../../../api/app";
 import type { Hono } from "hono";
 import {
   createPostgresTestDatabase,
@@ -15,10 +15,21 @@ import {
 export const TICK_SECRET = "unit-test-tick-secret";
 const JWT_SECRET = "unit-test-jwt-secret";
 
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
+
+export function asJsonObject<T extends Record<string, unknown>>(
+  value: JsonValue | null,
+): T {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Expected JSON object response.");
+  }
+  return value as T;
+}
+
 export interface ApiResponse {
   status: number;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  json: any;
+  json: JsonValue | null;
 }
 
 export interface ApiHarness {
@@ -51,7 +62,7 @@ export async function createApiHarness(): Promise<ApiHarness> {
   const db = await createPostgresTestDatabase();
   const app = createApiApp({
     provider: db.provider,
-    verify: async (token) => {
+    verify: async (token: string) => {
       const { jwtVerify } = await import("jose");
       const { payload } = await jwtVerify(
         token,

@@ -272,8 +272,8 @@ function Console({ matchId, onLeave }: { matchId: string; onLeave: () => void })
   }
 
   const markers: MapMarkerInput[] = view.players
-    .filter((player) => player.lat !== null && player.lng !== null)
-    .map((player) => ({
+    .filter((player: (typeof view.players)[number]) => player.lat !== null && player.lng !== null)
+    .map((player: (typeof view.players)[number]) => ({
       id: player.playerId,
       lat: player.lat!,
       lng: player.lng!,
@@ -419,7 +419,7 @@ function Console({ matchId, onLeave }: { matchId: string; onLeave: () => void })
             Open complaints
           </p>
           <p className="mt-1 font-display text-2xl">
-            {view.complaints.filter((row) => row.status === "open").length}
+            {view.complaints.filter((row: (typeof view.complaints)[number]) => row.status === "open").length}
           </p>
         </div>
       </div>
@@ -502,7 +502,7 @@ function Console({ matchId, onLeave }: { matchId: string; onLeave: () => void })
         )}
 
         <ul className="mt-4 grid gap-4">
-          {view.complaints.map((row) => {
+          {view.complaints.map((row: (typeof view.complaints)[number]) => {
             const overdue =
               row.status === "open" && now > row.responseDueAtMs;
             return (
@@ -617,7 +617,7 @@ function Console({ matchId, onLeave }: { matchId: string; onLeave: () => void })
               </tr>
             </thead>
             <tbody>
-              {view.players.map((player) => (
+              {view.players.map((player: (typeof view.players)[number]) => (
                 <tr
                   key={player.playerId}
                   className="border-b border-hairline/60 last:border-0"

@@ -28,6 +28,13 @@ const STRANGER = "99999999-9999-4999-8999-999999999999";
 const COORD = { lat: 51.5074, lng: -0.1278 };
 const MINUTE = 60_000;
 
+function jsonObject<T extends Record<string, unknown>>(value: unknown): T {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Expected JSON object response.");
+  }
+  return value as T;
+}
+
 let api: ApiHarness;
 
 async function seedProfiles(): Promise<void> {
@@ -55,28 +62,42 @@ async function createRoom() {
     },
     { token: organiser },
   );
-  if (created.status !== 200) throw new Error(created.json.error);
+  const createdJson = jsonObject<{
+    error?: string;
+    roomCode: string;
+    matchId: string;
+    publicSlug: string;
+  }>(created.json);
+  if (created.status !== 200) {
+    throw new Error(String(createdJson.error ?? "Could not create the room."));
+  }
 
   for (let i = 0; i < PLAYERS.length; i += 1) {
     const joined = await api.post(
       "/api/rooms/joinRoom",
       {
-        roomCode: created.json.roomCode,
+        roomCode: createdJson.roomCode,
         callSign: `P${i}`,
         displayName: `Player ${i}`,
         displayNameMode: "nickname",
       },
       { token: await api.token(PLAYERS[i]) },
     );
-    if (joined.status !== 200) throw new Error(joined.json.error);
+    const joinedJson = jsonObject<{ error?: string }>(joined.json);
+    if (joined.status !== 200) {
+      throw new Error(String(joinedJson.error ?? "Could not join the room."));
+    }
     const briefed = await api.post(
       "/api/rooms/acknowledgeBriefing",
-      { matchId: created.json.matchId },
+      { matchId: createdJson.matchId },
       { token: await api.token(PLAYERS[i]) },
     );
-    if (briefed.status !== 200) throw new Error(briefed.json.error);
+    const briefedJson = jsonObject<{ error?: string }>(briefed.json);
+    if (briefed.status !== 200) {
+      throw new Error(String(briefedJson.error ?? "Could not brief the player."));
+    }
   }
-  return created.json as { matchId: string; roomCode: string; publicSlug: string };
+  return createdJson;
 }
 
 async function playerRows(matchId: string) {
@@ -153,14 +174,16 @@ describe("the API runs the game against Postgres", () => {
       { token: organiser },
     );
     expect(preview.status).toBe(200);
-    expect(preview.json.displayName).toBe("Ines");
+    const previewJson = jsonObject<{ displayName: string }>(preview.json);
+    expect(previewJson.displayName).toBe("Ines");
 
     const claimed = await api.post(
       "/api/rooms/acceptInvite",
       { inviteCode: invite[0].invite_code },
       { token: await api.token(INVIGILATOR) },
     );
-    expect(claimed.json.matchId).toBe(room.matchId);
+    const claimedJson = jsonObject<{ matchId: string }>(claimed.json);
+    expect(claimedJson.matchId).toBe(room.matchId);
 
     // ---- roster locked, setup running, then the head start --------------
     const started = await api.post(
@@ -168,14 +191,16 @@ describe("the API runs the game against Postgres", () => {
       { matchId: room.matchId },
       { token: organiser },
     );
-    expect(started.json.status).toBe("setup");
+    const startedJson = jsonObject<{ status: string }>(started.json);
+    expect(startedJson.status).toBe("setup");
 
     const headStart = await api.post(
       "/api/rooms/beginHeadStartRoom",
       { matchId: room.matchId, force: true },
       { token: organiser },
     );
-    expect(headStart.json.status).toBe("headstart");
+    const headStartJson = jsonObject<{ status: string }>(headStart.json);
+    expect(headStartJson.status).toBe("headstart");
 
     // Move the clock: the head start is over, 25 minutes of clock, and a
     // five-minute pause that has already been accounted for.
@@ -203,9 +228,10 @@ describe("the API runs the game against Postgres", () => {
       },
       { token: await api.token(hunter.user_id) },
     );
-    expect(scan.json.ok).toBe(true);
-    expect(scan.json.points).toBeGreaterThan(0);
-    expect(scan.json.matchEnded).toBe(false);
+    const scanJson = jsonObject<{ ok: boolean; points: number; matchEnded: boolean }>(scan.json);
+    expect(scanJson.ok).toBe(true);
+    expect(scanJson.points).toBeGreaterThan(0);
+    expect(scanJson.matchEnded).toBe(false);
 
     // The capture choice is recorded on the tag raised when they were caught.
     const capture = await api.post(
@@ -213,7 +239,8 @@ describe("the API runs the game against Postgres", () => {
       { matchId: room.matchId, mode: "helper" },
       { token: await api.token(shadow.user_id) },
     );
-    expect(capture.json.mode).toBe("helper");
+    const captureJson = jsonObject<{ mode: string }>(capture.json);
+    expect(captureJson.mode).toBe("helper");
 
     // ---- a pause the minute tick must not charge -------------------------
     const paused = await api.post(
@@ -221,7 +248,8 @@ describe("the API runs the game against Postgres", () => {
       { matchId: room.matchId, reason: "Fog." },
       { token: organiser },
     );
-    expect(paused.json.pausedAt).not.toBeNull();
+    const pausedJson = jsonObject<{ pausedAt: string | null }>(paused.json);
+    expect(pausedJson.pausedAt).not.toBeNull();
 
     // ---- the end ---------------------------------------------------------
     const ended = await api.post(
@@ -229,7 +257,8 @@ describe("the API runs the game against Postgres", () => {
       { matchId: room.matchId, reason: "Time is up." },
       { token: organiser },
     );
-    expect(ended.json.ended).toBe(true);
+    const endedJson = jsonObject<{ ended: boolean }>(ended.json);
+    expect(endedJson.ended).toBe(true);
 
     // ---- the public page, before and after publishing --------------------
     const beforePublish = await api.post(
@@ -245,22 +274,29 @@ describe("the API runs the game against Postgres", () => {
       { matchId: room.matchId, publish: true },
       { token: organiser },
     );
-    expect(publish.json.published).toBe(true);
+    const publishJson = jsonObject<{ published: boolean }>(publish.json);
+    expect(publishJson.published).toBe(true);
 
     const publicResult = await api.post(
       "/api/results/public",
       { slug: room.publicSlug },
       { token: null },
     );
-    expect(publicResult.json.rows).toHaveLength(PLAYERS.length);
-    expect(publicResult.json.title).toBe("Night hunt");
-    expect(publicResult.json.clubName).toBe("Riverside Runners");
-    expect(publicResult.json.stats.totalPlayers).toBe(PLAYERS.length);
+    const publicResultJson = jsonObject<{
+      rows: unknown[];
+      title: string;
+      clubName: string | null;
+      stats: { totalPlayers: number; matchLengthMs: number };
+    }>(publicResult.json);
+    expect(publicResultJson.rows).toHaveLength(PLAYERS.length);
+    expect(publicResultJson.title).toBe("Night hunt");
+    expect(publicResultJson.clubName).toBe("Riverside Runners");
+    expect(publicResultJson.stats.totalPlayers).toBe(PLAYERS.length);
     // 25 minutes of clock, minus the 5-minute pause: the head start is inside
     // the clock, so it is not subtracted again.
-    expect(publicResult.json.stats.matchLengthMs).toBeGreaterThanOrEqual(19 * MINUTE);
-    expect(publicResult.json.stats.matchLengthMs).toBeLessThan(21 * MINUTE);
-    const publicJson = JSON.stringify(publicResult.json);
+    expect(publicResultJson.stats.matchLengthMs).toBeGreaterThanOrEqual(19 * MINUTE);
+    expect(publicResultJson.stats.matchLengthMs).toBeLessThan(21 * MINUTE);
+    const publicJson = JSON.stringify(publicResultJson);
     expect(publicJson).not.toContain("roomCode");
     expect(publicJson).not.toContain(room.roomCode);
     expect(publicJson).not.toContain('"lat"');
@@ -272,11 +308,12 @@ describe("the API runs the game against Postgres", () => {
       { matchId: room.matchId },
       { token: await api.token(shadow.user_id) },
     );
-    expect(mine.json.role).toBe("shadow");
+    const mineJson = jsonObject<{ role: string; minutesSurvived: number; catches: unknown[]; publicSlug: string }>(mine.json);
+    expect(mineJson.role).toBe("shadow");
     // 25 minutes of clock, the first 5 the head start, minus the pause.
-    expect(mine.json.minutesSurvived).toBe(15);
-    expect(mine.json.catches).toHaveLength(1);
-    expect(mine.json.publicSlug).toBe(room.publicSlug);
+    expect(mineJson.minutesSurvived).toBe(15);
+    expect(mineJson.catches).toHaveLength(1);
+    expect(mineJson.publicSlug).toBe(room.publicSlug);
 
     // ---- the leaderboard, the feed, the map and the console --------------
     const leaderboard = await api.post(
@@ -284,15 +321,17 @@ describe("the API runs the game against Postgres", () => {
       { matchId: room.matchId },
       { token: organiser },
     );
-    expect(leaderboard.json.entries.length).toBeGreaterThan(0);
+    const leaderboardJson = jsonObject<{ entries: unknown[] }>(leaderboard.json);
+    expect(leaderboardJson.entries.length).toBeGreaterThan(0);
 
     const feed = await api.post(
       "/api/events/feed",
       { matchId: room.matchId },
       { token: await api.token(PLAYERS[2]) },
     );
-    expect(feed.json.items.length).toBeGreaterThan(0);
-    expect(JSON.stringify(feed.json)).not.toContain('"lat"');
+    const feedJson = jsonObject<{ items: unknown[] }>(feed.json);
+    expect(feedJson.items.length).toBeGreaterThan(0);
+    expect(JSON.stringify(feedJson)).not.toContain('"lat"');
 
     const map = await api.post(
       "/api/map/view",
@@ -325,7 +364,8 @@ describe("the API runs the game against Postgres", () => {
       { token: await api.token(hunter.user_id) },
     );
     expect(targets.status).toBe(200);
-    expect(targets.json.isHunter).toBe(true);
+    const targetsJson = jsonObject<{ isHunter: boolean }>(targets.json);
+    expect(targetsJson.isHunter).toBe(true);
 
     const otherShadow = players.find(
       (row) => row.role === "shadow" && row.id !== shadow.id,
@@ -338,7 +378,8 @@ describe("the API runs the game against Postgres", () => {
       );
       // The match is over, so a fresh complaint is refused — same as Convex.
       expect(filed.status).toBe(400);
-      expect(typeof filed.json.error).toBe("string");
+      const filedJson = jsonObject<{ error?: string }>(filed.json);
+      expect(typeof filedJson.error).toBe("string");
     }
 
     const warned = await api.post(
@@ -368,7 +409,8 @@ describe("the API runs the game against Postgres", () => {
       // Signed in but outside the match: the service is what refuses.
       expect([200, 400]).toContain(foreign.status);
       if (foreign.status === 400) {
-        expect(typeof foreign.json.error).toBe("string");
+        const foreignJson = jsonObject<{ error?: string }>(foreign.json);
+        expect(typeof foreignJson.error).toBe("string");
       }
     }
 
@@ -524,7 +566,10 @@ describe("concurrent requests", () => {
       }),
     ]);
 
-    const accepted = results.filter((result) => result.json.ok === true);
+    const accepted = results.filter((result) => {
+      const resultJson = jsonObject<{ ok?: boolean }>(result.json);
+      return resultJson.ok === true;
+    });
     expect(accepted).toHaveLength(1);
 
     const tags = await api.db.query<{ status: string }>(
@@ -583,7 +628,6 @@ describe("concurrent requests", () => {
   });
 
   it("never gives one account two seats in the same room", async () => {
-    const organiser = await api.token(ORGANISER);
     const room = await createRoom();
     const token = await api.token(PLAYERS[0]);
 
@@ -597,7 +641,8 @@ describe("concurrent requests", () => {
       },
       { token },
     );
-    expect(first.json.rejoined).toBe(true);
+    const firstJson = jsonObject<{ rejoined: boolean }>(first.json);
+    expect(firstJson.rejoined).toBe(true);
 
     const [a, b] = await Promise.all([
       api.post(
@@ -621,7 +666,9 @@ describe("concurrent requests", () => {
         { token },
       ),
     ]);
-    expect([a.json.rejoined, b.json.rejoined].filter(Boolean)).toHaveLength(2);
+    const aJson = jsonObject<{ rejoined: boolean }>(a.json);
+    const bJson = jsonObject<{ rejoined: boolean }>(b.json);
+    expect([aJson.rejoined, bJson.rejoined].filter(Boolean)).toHaveLength(2);
 
     const rows = await api.db.query<{ count: string }>(
       `select count(*)::text as count from players where user_id = $1::uuid`,
@@ -702,9 +749,10 @@ describe("the scheduler endpoint", () => {
       { token: null, headers: { "x-tick-secret": TICK_SECRET } },
     );
     expect(authorised.status).toBe(200);
-    expect(typeof authorised.json.matches).toBe("number");
-    expect(typeof authorised.json.aliveAwards).toBe("number");
-    expect(typeof authorised.json.ended).toBe("number");
+    const authorisedJson = jsonObject<{ matches: number; aliveAwards: number; ended: number }>(authorised.json);
+    expect(typeof authorisedJson.matches).toBe("number");
+    expect(typeof authorisedJson.aliveAwards).toBe("number");
+    expect(typeof authorisedJson.ended).toBe("number");
 
     const again = await api.post(
       "/api/tick",
@@ -752,7 +800,8 @@ describe("the scheduler endpoint", () => {
       { token: null, headers: { "x-tick-secret": TICK_SECRET } },
     );
     expect(purged.status).toBe(200);
-    expect(purged.json.deleted).toBeGreaterThanOrEqual(1);
+    const purgedJson = jsonObject<{ deleted: number }>(purged.json);
+    expect(purgedJson.deleted).toBeGreaterThanOrEqual(1);
 
     const left = await api.db.query<{ count: string }>(
       `select count(*)::text as count from locations where match_id = $1::uuid`,
@@ -849,7 +898,7 @@ describe("live updates", () => {
 describe("the scheduled migration", () => {
   it("wires the tick and the purge to the API, and fails closed without them", () => {
     const path = fileURLToPath(
-      new URL("../../supabase/migrations/20261101090200_cron.sql", import.meta.url),
+      new URL("../../../supabase/migrations/20261101090200_cron.sql", import.meta.url),
     );
     const sql = readFileSync(path, "utf8");
 

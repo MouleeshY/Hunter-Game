@@ -307,18 +307,20 @@ export default function Match() {
     Math.ceil(config.graceSeconds - secondsOutsideNow),
   );
 
-  const markers: MapMarkerInput[] = view.markers.map((marker) => ({
-    id: marker.playerId,
-    lat: marker.lat,
-    lng: marker.lng,
+  const markers: MapMarkerInput[] = view.markers.map(
+    (marker: (typeof view.markers)[number]) => ({
+      id: marker.playerId,
+      lat: marker.lat,
+      lng: marker.lng,
     kind: marker.kind,
-    label:
-      marker.kind === "ping"
-        ? `${marker.callSign} · ${Math.max(1, Math.round(marker.ageMs / 60_000))}m ago`
-        : marker.callSign,
-    ageMs: marker.ageMs,
-    accuracyMetres: marker.accuracyMetres,
-  }));
+      label:
+        marker.kind === "ping"
+          ? `${marker.callSign} · ${Math.max(1, Math.round(marker.ageMs / 60_000))}m ago`
+          : marker.callSign,
+      ageMs: marker.ageMs,
+      accuracyMetres: marker.accuracyMetres,
+    }),
+  );
 
   const detectionOff =
     !config.proximityDetectionEnabled

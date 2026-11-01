@@ -86,9 +86,10 @@ export function ComplaintForm({
                 No Shadows are in play right now.
               </li>
             )}
-            {targets.targets.map((target) => {
-              const selected = target.playerId === accusedId;
-              return (
+            {targets.targets.map(
+              (target: (typeof targets.targets)[number]) => {
+                const selected = target.playerId === accusedId;
+                return (
                 <li key={target.playerId}>
                   <button
                     type="button"
@@ -109,7 +110,8 @@ export function ComplaintForm({
                   </button>
                 </li>
               );
-            })}
+              },
+            )}
           </ul>
 
           {error && <p className="mt-3 text-[12px] text-destructive">{error}</p>}
