@@ -646,7 +646,8 @@ export async function startMatch(
     });
   }
 
-  const endsAt = now + match.config.matchDurationMinutes * 60_000;
+  // The match clock only starts when the setup period ends, so `endsAt` stays
+  // null until `advanceToHeadStart` writes it.
   const setupEndsAt = now + match.config.setupDurationSeconds * 1000;
 
   await repos.matches.patch(ctx, match.id, {

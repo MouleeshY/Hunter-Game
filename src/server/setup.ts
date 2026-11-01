@@ -10,11 +10,11 @@
  *   - every player at least `minSeparationMetres` from every other, and
  *   - a Hunter at least `minHunterShadowSeparationMetres` from any Shadow.
  *
- * At the end of the countdown the server checks again. If some players are
- * still too close, the organiser may either extend the countdown by one
- * minute or start the head start anyway — and both choices go in the audit
- * log. All decisions come from `src/rules/separation`; everything here reads
- * and writes through the repositories.
+ * At the end of the countdown the server checks again. If anyone is still too
+ * close **or has no position at all** nobody is ready: the organiser may either
+ * extend the countdown by one minute or start the head start anyway — and both
+ * choices go in the audit log. All decisions come from `src/rules/separation`;
+ * everything here reads and writes through the repositories.
  */
 import { separationStatusFor, separationViolations, type MatchConfig, type MatchStatus, type SeparationSample, type SeparationViolation } from "../rules";
 import { getRepos } from "./providers";
@@ -33,7 +33,7 @@ export interface SeparationIssue {
 export interface SeparationCheck {
   checkedAt: number;
   violations: SeparationIssue[];
-  /** Call signs with no usable reading yet — they cannot be judged. */
+  /** Call signs with no usable reading yet — shown to staff as "no location". */
   waiting: string[];
   ok: boolean;
 }
@@ -43,7 +43,6 @@ async function samplesFor(
   ctx: RepoContext,
   match: MatchRow,
   players: PlayerRow[],
-  nowMs: number,
 ): Promise<(SeparationSample | null)[]> {
   const repos = getRepos();
   return await Promise.all(
@@ -88,7 +87,7 @@ export async function checkSeparation(
   if (!match) throw new Error("Match not found.");
 
   const players = await repos.players.listByMatch(ctx, match.id);
-  const samples = await samplesFor(ctx, match, players, now);
+  const samples = await samplesFor(ctx, match, players);
   const callSign = new Map(players.map((player) => [player.id, player.callSign]));
 
   const raw: SeparationViolation[] = separationViolations({
@@ -132,7 +131,7 @@ export async function separationForPlayer(
   const match = await repos.matches.findById(ctx, input.matchId);
   if (!match) throw new Error("Match not found.");
   const players = await repos.players.listByMatch(ctx, match.id);
-  const samples = await samplesFor(ctx, match, players, now);
+  const samples = await samplesFor(ctx, match, players);
   return separationStatusFor(input.playerId, {
     samples,
     nowMs: now,
@@ -141,10 +140,13 @@ export async function separationForPlayer(
 }
 
 /**
- * Is the setup countdown over, and was everyone far enough apart?
+ * Is the setup countdown over, and is everyone ready to go?
  *
- * Only a real violation blocks. A player with no usable reading is shown as
- * "waiting" to staff, but the rules only make being too close a problem.
+ * Ready means two things: nobody is standing too close to anybody else, and
+ * every player has a usable reading. A player with no position (`waiting`) is
+ * **not** ready — the server cannot tell whether they are clear — so the
+ * countdown never advances by itself while one is missing. The organiser then
+ * extends the setup or force-starts it with a confirmation.
  */
 export async function setupIsClear(
   ctx: RepoContext,
@@ -155,7 +157,7 @@ export async function setupIsClear(
     matchId: match.id,
     nowMs,
   });
-  return check.violations.length === 0;
+  return check.ok;
 }
 
 /**
@@ -216,11 +218,24 @@ export async function beginHeadStart(
 
   const check = await checkSeparation(ctx, { matchId: match.id, nowMs: now });
   const violations = check.violations.length;
-  const blocked = violations > 0;
+  const noLocation = check.waiting.length;
+  // Not clear means either kind of problem: too close, or no usable position.
+  const blocked = violations > 0 || noLocation > 0;
 
   if (blocked && input.force !== true) {
+    const parts: string[] = [];
+    if (violations > 0) {
+      parts.push(
+        `${violations} pair${violations === 1 ? " is" : "s are"} too close`,
+      );
+    }
+    if (noLocation > 0) {
+      parts.push(
+        `${noLocation} player${noLocation === 1 ? " has" : "s have"} no location`,
+      );
+    }
     throw new Error(
-      `${violations} pair${violations === 1 ? " is" : "s are"} still too close. Extend the setup, or start anyway with a confirmation.`,
+      `The setup is not clear yet: ${parts.join(", ")}. Extend the setup, or start anyway with a confirmation.`,
     );
   }
 
@@ -232,7 +247,7 @@ export async function beginHeadStart(
       at: now,
       actorUserId: input.userId,
       actorName: "Organiser",
-      action: "started_head_start_with_violations",
+      action: "started_head_start_forced",
       targetType: "match",
       targetId: match.id,
       targetLabel: match.roomCode,
@@ -241,8 +256,8 @@ export async function beginHeadStart(
         violations > 0
           ? `${violations} too-close pair${violations === 1 ? "" : "s"}`
           : null,
-        check.waiting.length > 0
-          ? `No position: ${check.waiting.join(", ")}`
+        noLocation > 0
+          ? `No location: ${check.waiting.join(", ")}`
           : null,
       ]
         .filter(Boolean)

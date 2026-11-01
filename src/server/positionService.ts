@@ -25,7 +25,6 @@ import {
   type PlayerMode,
   type PlayerStatus,
   type Role,
-  type SeparationSample,
   type SeparationStatus,
   type Viewer,
   type VisibilityMode,
@@ -665,13 +664,14 @@ export async function getMapView(
     repos.tags.listByMatch(ctx, match.id),
   ]);
 
-  if (invigilator === null && meAsPlayer === null) {
+  const isOrganiser = match.createdByUserId === input.userId;
+  // The organiser runs the dashboard even when they are not on the roster.
+  if (invigilator === null && meAsPlayer === null && !isOrganiser) {
     throw new Error("You are not in this match.");
   }
-  const isOrganiser = match.createdByUserId === input.userId;
 
   const viewer: Viewer =
-    invigilator !== null
+    invigilator !== null || (meAsPlayer === null && isOrganiser)
       ? { kind: "invigilator" }
       : {
           kind: "player",

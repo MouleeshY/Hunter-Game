@@ -463,14 +463,22 @@ async function joinPlayers(roomCode: string, count: number, offset = 0) {
   return joined;
 }
 
-/** Start the setup countdown and then the head start itself. */
+/**
+ * Start the setup countdown and then the head start itself. This fixture never
+ * uploads positions, and "no location" is not ready, so the organiser
+ * force-starts the head start — exactly what a real organiser would tap.
+ */
 async function startHeadStart(matchId: string, seed?: number) {
   await startMatch(null, {
     matchId,
     userId: "user-organiser",
     seed,
   });
-  return await beginHeadStart(null, { matchId, userId: "user-organiser" });
+  return await beginHeadStart(null, {
+    matchId,
+    userId: "user-organiser",
+    force: true,
+  });
 }
 
 describe("create a room", () => {
@@ -655,6 +663,7 @@ describe("lock and start", () => {
     const started = await beginHeadStart(null, {
       matchId: created.matchId,
       userId: "user-organiser",
+      force: true,
     });
     expect(started.status).toBe("headstart");
     expect(started.headStartEndsAt! - started.startedAt!).toBe(
@@ -762,7 +771,7 @@ describe("position uploads are separate from the ping", () => {
   it("stores uploads every few seconds once live", async () => {
     const created = await createRoom();
     await joinPlayers(created.roomCode, 4);
-    const started = await startHeadStart(created.matchId, 8);
+    await startHeadStart(created.matchId, 8);
 
     // Pretend the five-minute head start has just ended.
     const repos = (await import("./providers")).getRepos();

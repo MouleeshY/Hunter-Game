@@ -67,14 +67,13 @@ function vibrate(): void {
   }
 }
 
-/** Remember the value from the previous render, without writing in render. */
-function usePrevious<T>(value: T): T | undefined {
-  const ref = useRef<T | undefined>(undefined);
-  const previous = ref.current;
-  useEffect(() => {
-    ref.current = value;
-  });
-  return previous;
+/** The bits of the last payload an alert is derived from. */
+interface AlertSnapshot {
+  status: string | null;
+  paused: boolean;
+  playerStatus: string | null;
+  outside: boolean;
+  lastPingAtMs: number | null;
 }
 
 export interface MatchAlertInput {
@@ -106,20 +105,21 @@ export function useMatchAlerts(input: MatchAlertInput): {
   });
   const [banners, setBanners] = useState<AlertBanner[]>([]);
   const seen = useRef<Set<string>>(new Set());
-  const muteRef = useRef(mute);
-  muteRef.current = mute;
 
-  const push = useCallback((key: string, text: string, tone: AlertTone) => {
-    if (seen.current.has(key)) return;
-    seen.current.add(key);
-    setBanners((current) =>
-      [{ id: key, tone, text, at: Date.now() }, ...current].slice(0, 5),
-    );
-    if (!muteRef.current) {
-      playTone(tone);
-      vibrate();
-    }
-  }, []);
+  const push = useCallback(
+    (key: string, text: string, tone: AlertTone) => {
+      if (seen.current.has(key)) return;
+      seen.current.add(key);
+      setBanners((current) =>
+        [{ id: key, tone, text, at: Date.now() }, ...current].slice(0, 5),
+      );
+      if (!mute) {
+        playTone(tone);
+        vibrate();
+      }
+    },
+    [mute],
+  );
 
   const toggleMute = useCallback(() => {
     setMute((current) => {
@@ -138,70 +138,87 @@ export function useMatchAlerts(input: MatchAlertInput): {
     seen.current.delete(id);
   }, []);
 
-  const previousStatus = usePrevious(input.status);
-  const previousPaused = usePrevious(input.paused);
-  const previousPlayerStatus = usePrevious(input.playerStatus);
-  const previousOutside = usePrevious(input.outside);
-  const previousPing = usePrevious(input.lastPingAtMs);
+  // Everything below compares the payload with the one before it. The snapshot
+  // lives in a ref that is only ever read and written inside effects, so no
+  // state is written during render.
+  const previous = useRef<AlertSnapshot | null>(null);
 
-  // ---- phase -------------------------------------------------------------
   useEffect(() => {
-    if (previousStatus === undefined || previousStatus === input.status) return;
-    if (input.status === "live" && previousStatus === "headstart") {
-      push("phase:live", "The head start is over — the match is live.", "good");
-    }
-    if (input.status === "ended") {
-      push("phase:ended", "Match over.", "info");
-    }
-    if (input.status === "headstart" && previousStatus === "setup") {
-      push("phase:headstart", "Setup finished — the head start has begun.", "info");
-    }
-  }, [previousStatus, input.status, push]);
+    const last = previous.current;
+    previous.current = {
+      status: input.status,
+      paused: input.paused,
+      playerStatus: input.playerStatus,
+      outside: input.outside,
+      lastPingAtMs: input.lastPingAtMs,
+    };
+    // First payload after opening the screen: remember where things stand
+    // instead of buzzing about something that already happened.
+    if (last === null) return;
 
-  // ---- pause / resume ----------------------------------------------------
-  useEffect(() => {
-    if (previousPaused === undefined || previousPaused === input.paused) return;
-    if (input.paused) {
-      push("pause", "Match paused. The clock is frozen for everyone.", "warn");
-    } else {
-      push("resume", "The match is running again.", "good");
+    // ---- phase -----------------------------------------------------------
+    if (last.status !== input.status) {
+      if (input.status === "live" && last.status === "headstart") {
+        push("phase:live", "The head start is over — the match is live.", "good");
+      }
+      if (input.status === "ended") {
+        push("phase:ended", "Match over.", "info");
+      }
+      if (input.status === "headstart" && last.status === "setup") {
+        push(
+          "phase:headstart",
+          "Setup finished — the head start has begun.",
+          "info",
+        );
+      }
     }
-  }, [previousPaused, input.paused, push]);
 
-  // ---- being tagged ------------------------------------------------------
-  useEffect(() => {
-    if (
-      previousPlayerStatus === undefined ||
-      previousPlayerStatus === input.playerStatus
-    ) {
-      return;
+    // ---- pause / resume --------------------------------------------------
+    if (last.paused !== input.paused) {
+      if (input.paused) {
+        push("pause", "Match paused. The clock is frozen for everyone.", "warn");
+      } else {
+        push("resume", "The match is running again.", "good");
+      }
     }
-    if (
-      previousPlayerStatus === "active" &&
-      (input.playerStatus === "tagged" || input.playerStatus === "spectator")
-    ) {
-      push("tagged", "You have been tagged.", "danger");
-    }
-    if (input.playerStatus === "eliminated" && previousPlayerStatus === "active") {
-      push("eliminated", "You are out: too long outside the area.", "danger");
-    }
-  }, [previousPlayerStatus, input.playerStatus, push]);
 
-  // ---- leaving the zone --------------------------------------------------
-  useEffect(() => {
-    if (previousOutside === undefined || previousOutside === input.outside) return;
-    if (input.outside) {
+    // ---- being tagged ----------------------------------------------------
+    if (last.playerStatus !== input.playerStatus) {
+      if (
+        last.playerStatus === "active" &&
+        (input.playerStatus === "tagged" || input.playerStatus === "spectator")
+      ) {
+        push("tagged", "You have been tagged.", "danger");
+      }
+      if (
+        input.playerStatus === "eliminated" &&
+        last.playerStatus === "active"
+      ) {
+        push("eliminated", "You are out: too long outside the area.", "danger");
+      }
+    }
+
+    // ---- leaving the zone ------------------------------------------------
+    if (last.outside !== input.outside && input.outside) {
       push("outside", "You have left the play area — get back inside.", "warn");
     }
-  }, [previousOutside, input.outside, push]);
 
-  // ---- each ping ---------------------------------------------------------
-  useEffect(() => {
-    if (previousPing === undefined || previousPing === null) return;
-    if (input.lastPingAtMs !== null && input.lastPingAtMs !== previousPing) {
+    // ---- each ping -------------------------------------------------------
+    if (
+      last.lastPingAtMs !== null &&
+      input.lastPingAtMs !== null &&
+      input.lastPingAtMs !== last.lastPingAtMs
+    ) {
       push("ping", "Radar ping: positions have updated.", "info");
     }
-  }, [previousPing, input.lastPingAtMs, push]);
+  }, [
+    input.status,
+    input.paused,
+    input.playerStatus,
+    input.outside,
+    input.lastPingAtMs,
+    push,
+  ]);
 
   // ---- 30 seconds before a shrink ---------------------------------------
   const shrinkWarned = useRef(false);

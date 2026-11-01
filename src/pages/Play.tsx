@@ -469,6 +469,7 @@ function LobbyView({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [forceStart, setForceStart] = useState(false);
+  const [forceHeadStart, setForceHeadStart] = useState(false);
   const [abortOpen, setAbortOpen] = useState(false);
   const [abortReason, setAbortReason] = useState("");
 
@@ -898,19 +899,67 @@ function LobbyView({
             >
               Extend setup 1 min
             </Button>
-            <Button
-              type="button"
-              size="lg"
-              disabled={busy}
-              className="h-11 uppercase tracking-[0.18em]"
-              onClick={() =>
-                void run(async () => {
-                  await beginHeadStart({ matchId: lobby.matchId as never });
-                }, "Could not start the head start.")
-              }
-            >
-              Start the head start
-            </Button>
+            {forceHeadStart ? (
+              <span className="flex flex-wrap items-center gap-2">
+                <span className="text-[13px] text-muted-foreground">
+                  Someone is too close or has no location. Start anyway?
+                </span>
+                <Button
+                  type="button"
+                  size="lg"
+                  disabled={busy}
+                  className="h-11 uppercase tracking-[0.18em]"
+                  onClick={() =>
+                    void run(async () => {
+                      await beginHeadStart({
+                        matchId: lobby.matchId as never,
+                        force: true,
+                      });
+                      setForceHeadStart(false);
+                    }, "Could not start the head start.")
+                  }
+                >
+                  Yes, start anyway
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="lg"
+                  className="h-11 uppercase tracking-[0.18em]"
+                  onClick={() => setForceHeadStart(false)}
+                >
+                  Cancel
+                </Button>
+              </span>
+            ) : (
+              <Button
+                type="button"
+                size="lg"
+                disabled={busy}
+                className="h-11 uppercase tracking-[0.18em]"
+                onClick={() =>
+                  void run(async () => {
+                    try {
+                      await beginHeadStart({ matchId: lobby.matchId as never });
+                    } catch (cause) {
+                      const message =
+                        cause instanceof Error
+                          ? cause.message
+                          : "Could not start the head start.";
+                      // The server names whoever is still too close or has no
+                      // location; offer the confirmation the rules require.
+                      if (message.includes("not clear yet")) {
+                        setForceHeadStart(true);
+                        return;
+                      }
+                      throw cause;
+                    }
+                  }, "Could not start the head start.")
+                }
+              >
+                Start the head start
+              </Button>
+            )}
             <Button asChild variant="outline" size="lg" className="h-11 uppercase tracking-[0.18em]">
               <Link to={`/match/${lobby.roomCode}`}>Spacing check</Link>
             </Button>

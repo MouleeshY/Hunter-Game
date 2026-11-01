@@ -244,7 +244,9 @@ export function canStartMatch(input: {
       pendingBriefings,
     };
   }
-  return { allowed: true, reason: null, pendingBriefings: 0 };
+  // The count is reported even when a forced start is allowed: the caller uses
+  // it to record who was still missing at the moment of the start.
+  return { allowed: true, reason: null, pendingBriefings };
 }
 
 /**

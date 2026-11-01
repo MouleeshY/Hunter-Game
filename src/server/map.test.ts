@@ -70,9 +70,12 @@ async function setupMatch(): Promise<Fixture> {
     userId: "user-organiser",
     seed: 4242,
   });
+  // No phone has uploaded a position in this fixture, so the setup can never
+  // clear on its own: the organiser force-starts it, as a real one would.
   await beginHeadStart(null, {
     matchId: created.matchId,
     userId: "user-organiser",
+    force: true,
   });
 
   // Rewrite the clock so the match started at T0.

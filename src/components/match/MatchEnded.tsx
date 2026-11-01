@@ -28,7 +28,7 @@ function winnerLine(view: MapView): { headline: string; detail: string } {
  * GPS watch is released and the wake lock is gone by the time you see it.
  */
 export function MatchEnded(props: { view: MapView; onBack: () => void }) {
-  const { view, onBack } = props;
+  const { view } = props;
   const result = winnerLine(view);
   const myRole = view.me.role === "hunter" ? "Hunter" : "Shadow";
 

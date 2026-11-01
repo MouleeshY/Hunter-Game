@@ -78,9 +78,12 @@ async function setupMatch(playerCount = 6, durationMinutes = 90) {
     userId: ORGANISER,
     seed: 11,
   });
+  // Nobody has uploaded a position in this fixture, so the setup cannot clear
+  // by itself (no location is not "ready"): the organiser force-starts it.
   const started = await beginHeadStart(null, {
     matchId: created.matchId,
     userId: ORGANISER,
+    force: true,
   });
 
   return { created, started };
@@ -541,7 +544,11 @@ describe("invigilator console", () => {
     expect(view.players.length).toBe(6);
     expect(view.roomCode).toBe(created.roomCode);
     expect(view.complaints).toEqual([]);
-    expect(view.audit).toEqual([]);
+    // The only audit row is the fixture's force-start of the head start (no
+    // positions were uploaded, so the setup could not clear on its own).
+    expect(view.audit.map((row) => row.action)).toEqual([
+      "started_head_start_forced",
+    ]);
   });
 
   it("forces a tag that scores like a normal one and writes an audit row", async () => {
@@ -583,10 +590,10 @@ describe("invigilator console", () => {
       matchId: created.matchId,
       userId,
     });
-    expect(view.audit.length).toBe(1);
-    expect(view.audit[0].action).toBe("forced_tag");
-    expect(view.audit[0].actorName).toBe(created.invigilators[0].displayName);
-    expect(view.audit[0].reason).toBe("Refused to show the code.");
+    const forcedTag = view.audit.find((row) => row.action === "forced_tag")!;
+    expect(forcedTag).toBeDefined();
+    expect(forcedTag.actorName).toBe(created.invigilators[0].displayName);
+    expect(forcedTag.reason).toBe("Refused to show the code.");
   });
 
   it("removes a player, logs it, and ends the match when no Shadow is left", async () => {

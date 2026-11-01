@@ -138,7 +138,7 @@ export function SetupPanel(props: {
               ))}
               {setup.waiting.length > 0 && (
                 <li className="text-muted-foreground">
-                  No position yet: {setup.waiting.join(", ")}
+                  No location: {setup.waiting.join(", ")}
                 </li>
               )}
             </ul>
@@ -179,9 +179,9 @@ export function SetupPanel(props: {
                   .catch((cause: unknown) => {
                     const message =
                       cause instanceof Error ? cause.message : "Could not start.";
-                    // The server counts the pairs that are still too close:
-                    // offer the confirmation the rules require.
-                    if (message.includes("too close")) setConfirmForce(true);
+                    // The server reports anyone still too close or with no
+                    // location: offer the confirmation the rules require.
+                    if (message.includes("not clear yet")) setConfirmForce(true);
                     else setError(message);
                   })
                   .finally(() => setBusy(false));
@@ -192,7 +192,7 @@ export function SetupPanel(props: {
           ) : (
             <span className="flex flex-wrap items-center gap-2">
               <span className="text-[13px] text-muted-foreground">
-                Some players are still too close. Start anyway?
+                Some players are too close or have no location. Start anyway?
               </span>
               <Button
                 type="button"

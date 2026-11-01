@@ -33,7 +33,7 @@ export interface TickResult {
   matches: number;
   aliveAwards: number;
   ended: number;
-  /** Setup countdowns that ran out with everyone clear. */
+  /** Setup countdowns that ran out with everyone clear and located. */
   advanced: number;
 }
 
@@ -132,8 +132,10 @@ export async function runMatchTick(
 
     // ---- setup countdown -------------------------------------------------
     // The clock is not running yet: this uses real time. When the countdown
-    // ends with everyone far enough apart the head start begins on its own;
-    // otherwise the organiser extends it or forces the start (audited).
+    // ends with everyone clear **and** every player holding a position, the
+    // head start begins on its own. If anyone is too close or has no location
+    // nothing advances: the organiser extends it or forces the start (both
+    // audited).
     if (match.status === "setup") {
       if (match.setupEndsAt !== null && now >= match.setupEndsAt) {
         const clear = await setupIsClear(ctx, match, now);

@@ -146,17 +146,20 @@ export default function Match() {
 
   // Opening the QR screen bumps this so a fresh reading goes up immediately.
   const [uploadPulse, setUploadPulse] = useState(0);
-  const [panel, setPanel] = useState<Panel>("none");
+  const [panelChoice, setPanelChoice] = useState<Panel>("none");
+  // Stage 5, task 7: an ended match shows the frozen result, never a panel.
+  const panel: Panel = ended ? "none" : panelChoice;
+  const setPanel = setPanelChoice;
   const [scanResult, setScanResult] = useState<
     { ok: boolean; message: string } | null
   >(null);
   const [helpState, setHelpState] = useState<string | null>(null);
 
   // Stage 5, task 7: an ended match stops uploads, GPS and the wake lock.
+  // The panel closes through the derived value above, not through an effect.
   useEffect(() => {
     if (!ended) return;
     gps.stop();
-    setPanel("none");
   }, [ended, gps]);
 
   const uploadState = usePositionUpload({
