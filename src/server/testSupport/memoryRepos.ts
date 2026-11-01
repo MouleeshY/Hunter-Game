@@ -2,7 +2,8 @@
  * In-memory repositories for tests: same interfaces as the Convex provider, so
  * server services can be driven end to end without a deployment.
  */
-import type { Repos } from "../providers";
+import type { Repos } from "../repos";
+import type { UserRow } from "../repos/userRepo";
 import type { PlayerRow } from "../repos/playerRepo";
 import type { MatchRow } from "../repos/matchRepo";
 import type { InvigilatorRow } from "../repos/invigilatorRepo";
@@ -15,6 +16,7 @@ import type { AuditRow } from "../repos/auditRepo";
 import type { MatchEventRow } from "../repos/eventRepo";
 
 export function memoryRepos(): Repos {
+  const users = new Map<string, UserRow>();
   const matches = new Map<string, MatchRow>();
   const players = new Map<string, PlayerRow>();
   const invigilators = new Map<string, InvigilatorRow>();
@@ -29,6 +31,19 @@ export function memoryRepos(): Repos {
   const nextId = (prefix: string) => `${prefix}-${(seq += 1)}`;
 
   return {
+    users: {
+      findById: async (_ctx, id) => users.get(id) ?? null,
+      upsert: async (_ctx, input) => {
+        const existing = users.get(input.id);
+        const row: UserRow = {
+          id: input.id,
+          name: input.name ?? existing?.name ?? null,
+          email: input.email ?? existing?.email ?? null,
+        };
+        users.set(row.id, row);
+        return row;
+      },
+    },
     matches: {
       findById: async (_ctx, id) => matches.get(id) ?? null,
       findByRoomCode: async (_ctx, roomCode) =>

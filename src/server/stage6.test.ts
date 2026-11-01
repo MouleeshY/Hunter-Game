@@ -36,7 +36,12 @@ import {
 } from "./results";
 import { getRepos, setReposForTests } from "./providers";
 import { memoryRepos } from "./testSupport/memoryRepos";
-import { matchClockMs, radarPulsesFired, RULES_CONFIG } from "../rules";
+import {
+  matchClockMs,
+  radarPulsesFired,
+  RULES_CONFIG,
+  survivedMinutes,
+} from "../rules";
 
 const ORGANISER = "user-organiser";
 const INVIGILATOR = "user-invigilator";
@@ -409,7 +414,8 @@ describe("the public leaderboard", () => {
     expect(hunterRow?.tags).toBe(1);
 
     const tagged = shadowRows.find((row) => row.status === "tagged");
-    expect(tagged?.minutesSurvived).toBe(30);
+    // 30 minutes of clock, the first 5 of them the separation head start.
+    expect(tagged?.minutesSurvived).toBe(25);
     expect(shadowRows.some((row) => row.status === "survived")).toBe(true);
     expect(tagged).toBeDefined();
   });
@@ -420,6 +426,42 @@ describe("the public leaderboard", () => {
  * -------------------------------------------------------------------------- */
 
 describe("match stats", () => {
+  it("counts a Shadow's survival from the end of the head start", () => {
+    const startedAtMs = Date.UTC(2026, 0, 1, 10, 0, 0);
+    const headStart = RULES_CONFIG.headStartMinutes;
+
+    // Caught during the separation countdown: nothing of the match has been
+    // played yet, so no minutes are credited.
+    expect(
+      survivedMinutes({
+        startedAtMs,
+        untilMs: startedAtMs + 3 * MINUTE,
+        pausedTotalMs: 0,
+        headStartMinutes: headStart,
+      }),
+    ).toBe(0);
+
+    // Ten minutes after the whistle began, the hunt is five minutes old.
+    expect(
+      survivedMinutes({
+        startedAtMs,
+        untilMs: startedAtMs + 10 * MINUTE,
+        pausedTotalMs: 0,
+        headStartMinutes: headStart,
+      }),
+    ).toBe(5);
+
+    // A pause is still taken off, and the head start is not counted twice.
+    expect(
+      survivedMinutes({
+        startedAtMs,
+        untilMs: startedAtMs + 30 * MINUTE,
+        pausedTotalMs: 5 * MINUTE,
+        headStartMinutes: headStart,
+      }),
+    ).toBe(20);
+  });
+
   it("counts radar pulses from played time and skips the paused minutes", () => {
     const startedAtMs = Date.UTC(2026, 0, 1, 10, 0, 0);
     const config = RULES_CONFIG;

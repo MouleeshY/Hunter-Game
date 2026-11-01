@@ -4,14 +4,20 @@
  * The rules engine and the repositories never learn which database is in use;
  * this module is the single place that reads `DATA_PROVIDER`.
  *
- *   DATA_PROVIDER=convex   → src/server/providers/convex (implemented)
- *   DATA_PROVIDER=supabase → src/server/providers/supabase (not wired yet)
+ *   DATA_PROVIDER=convex   → src/server/providers/convex (default)
+ *   DATA_PROVIDER=supabase → src/server/providers/postgres
  *
- * Absent or unset falls back to Convex, because that is the only provider that
- * exists today. The env read is guarded so the same module can be imported from
- * the browser bundle (where `process` is absent) without crashing.
+ * Only the Postgres *repository objects* are imported here. The Postgres
+ * connection (and the `postgres` driver, which needs Node builtins) lives in
+ * `./postgres` and is imported by the API and the tests — never by the Convex
+ * bundle, which runs on a runtime without `fs`/`net`/`tls`.
+ *
+ * The env read is guarded so the same module can be imported from the browser
+ * bundle (where `process` is absent) without crashing.
  */
-import { repos as convexRepos, type Repos } from "./convex";
+import { repos as convexRepos } from "./convex";
+import { repos as postgresRepos } from "./postgres/repos";
+import type { Repos } from "../repos";
 
 export type { Repos };
 
@@ -42,10 +48,6 @@ export function setReposForTests(next: Repos | null): void {
 export function getRepos(): Repos {
   if (override !== null) return override;
   const provider = selectProvider();
-  if (provider === "supabase") {
-    throw new Error(
-      "DATA_PROVIDER=supabase is not wired yet. Set DATA_PROVIDER=convex to run on Convex.",
-    );
-  }
+  if (provider === "supabase") return postgresRepos;
   return convexRepos;
 }

@@ -117,6 +117,9 @@ export function MatchEnded(props: {
                 <div className="flex items-baseline justify-between gap-3 border-b border-hairline pb-1 last:border-0">
                   <dt className="text-[13px] text-muted-foreground">
                     Time survived
+                    <span className="block text-[11px] text-muted-foreground/70">
+                      after the head start
+                    </span>
                   </dt>
                   <dd className="text-[14px] font-medium tabular-nums">
                     {result.minutesSurvived} min

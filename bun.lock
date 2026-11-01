@@ -6,6 +6,7 @@
       "name": "vite-template",
       "dependencies": {
         "@convex-dev/auth": "^0.0.90",
+        "@electric-sql/pglite": "^0.5.14",
         "@hookform/resolvers": "^5.2.2",
         "@jridgewell/trace-mapping": "^0.3.31",
         "@oslojs/crypto": "^1.0.1",
@@ -52,6 +53,7 @@
         "lucide-react": "^0.555.0",
         "maplibre-gl": "^6.16.0",
         "next-themes": "^0.4.6",
+        "postgres": "^4.0.0",
         "qrcode": "^1.5.4",
         "react": "^19.2.0",
         "react-day-picker": "9.13.0",
@@ -143,6 +145,8 @@
     "@convex-dev/auth": ["@convex-dev/auth@0.0.90", "", { "dependencies": { "@oslojs/crypto": "^1.0.1", "@oslojs/encoding": "^1.1.0", "cookie": "^1.0.1", "is-network-error": "^1.1.0", "jose": "^5.2.2", "jwt-decode": "^4.0.0", "lucia": "^3.2.0", "oauth4webapi": "^3.1.2", "path-to-regexp": "^6.3.0", "server-only": "^0.0.1" }, "peerDependencies": { "@auth/core": "^0.37.0", "convex": "^1.17.0", "react": "^18.2.0 || ^19.0.0-0" }, "optionalPeers": ["react"], "bin": { "auth": "dist/bin.cjs" } }, "sha512-aqw88EB042HvnaF4wcf/f/wTocmT2Bus2VDQRuV79cM0+8kORM0ICK/ByZ6XsHgQ9qr6TmidNbXm6QAgndrdpQ=="],
 
     "@date-fns/tz": ["@date-fns/tz@1.5.0", "", {}, "sha512-lwYN/vDPeNRULcepoE/LO2Pgx+7/RV+S9ARfbc9lr2DtGkOD7pAiruHvbR1RX3Qyf6ja47EWJDMsNK5vK08DJg=="],
+
+    "@electric-sql/pglite": ["@electric-sql/pglite@0.5.14", "", {}, "sha512-aAQe7iArcFB2w1xtx91l3l9trxhMzD6aZf+WnosSHNhwgp70EJz80Igw/bHnW14fUEFYWPBoQ1sGom8Xc0Jttg=="],
 
     "@esbuild/aix-ppc64": ["@esbuild/aix-ppc64@0.27.0", "", { "os": "aix", "cpu": "ppc64" }, "sha512-KuZrd2hRjz01y5JK9mEBSD3Vj3mbCvemhT466rSuJYeE/hjuBrHfjjcjMdTm/sz7au+++sdbJZJmuBwQLuw68A=="],
 
@@ -925,6 +929,8 @@
     "pngjs": ["pngjs@5.0.0", "", {}, "sha512-40QW5YalBNfQo5yRYmiw7Yz6TKKVr3h6970B2YE+3fQpsWcrbj1PzJgxeJ19DRQjhMbKPIuMY8rFaXc8moolVw=="],
 
     "postcss": ["postcss@8.5.16", "", { "dependencies": { "nanoid": "^3.3.12", "picocolors": "^1.1.1", "source-map-js": "^1.2.1" } }, "sha512-vuwillviilfKZsg0VGj5R/YwwcHx4SLsIOI/7K6mQkWx+l5cUHTjj5g0AasTBcyXsbfTgrwsUNmVUb5xVwyPwg=="],
+
+    "postgres": ["postgres@4.0.0", "", {}, "sha512-kBh8qXtcvvIAc00DftQyOxz7M/3Zxww1tRMXZPLzipNXXl5PIzHml+9zB3Mrge2U8ldc0WF1ZdLp1iYQi7Kh3A=="],
 
     "potpack": ["potpack@2.1.0", "", {}, "sha512-pcaShQc1Shq0y+E7GqJqvZj8DTthWV1KeHGdi0Z6IAin2Oi3JnLCOfwnCo84qc+HAp52wT9nK9H7FAJp5a44GQ=="],
 

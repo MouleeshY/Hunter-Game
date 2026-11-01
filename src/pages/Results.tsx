@@ -230,7 +230,9 @@ function ResultTable({ rows }: { rows: PublicResultRow[] }) {
                 {row.tags ?? "—"}
               </td>
               <td className="py-3 pr-4 text-[13px] tabular-nums text-muted-foreground">
-                {row.minutesSurvived === null ? "—" : `${row.minutesSurvived} min`}
+                {row.minutesSurvived === null
+                  ? "—"
+                  : `${row.minutesSurvived} min`}
               </td>
               <td className="py-3 pr-4 text-[12px] uppercase tracking-[0.14em] text-muted-foreground">
                 {STATUS_LABEL[row.status]}
@@ -356,7 +358,7 @@ function MatchResult({ slug }: { slug: string }) {
           </h2>
           <p className="text-[11px] text-muted-foreground">
             Equal points share a rank. Hunters show tags, Shadows show minutes
-            survived.
+            survived after the head start.
           </p>
         </div>
         <div className="mt-3">

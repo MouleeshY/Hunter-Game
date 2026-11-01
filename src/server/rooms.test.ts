@@ -47,7 +47,21 @@ function memoryRepos(): Repos {
   let seq = 0;
   const nextId = (prefix: string) => `${prefix}-${(seq += 1)}`;
 
+  const users = new Map<string, { id: string; name: string | null; email: string | null }>();
   const repos: Repos = {
+    users: {
+      findById: async (_ctx, id) => users.get(id) ?? null,
+      upsert: async (_ctx, input) => {
+        const existing = users.get(input.id);
+        const row = {
+          id: input.id,
+          name: input.name ?? existing?.name ?? null,
+          email: input.email ?? existing?.email ?? null,
+        };
+        users.set(row.id, row);
+        return row;
+      },
+    },
     matches: {
       findById: async (_ctx, id) => matches.get(id) ?? null,
       listEndedBefore: async (_ctx, endedBeforeMs) =>

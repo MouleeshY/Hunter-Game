@@ -51,7 +51,12 @@ export function zoneContractionsFired(
 }
 
 /**
- * Whole minutes a player was in the match.
+ * Whole minutes a Shadow was in the match, counted from the moment the head
+ * start ended.
+ *
+ * Scoring already treats the five-minute separation countdown as before the
+ * match, so the leaderboard's "time survived" must start at the same whistle:
+ * a Shadow caught one minute into the hunt survived one minute, not six.
  *
  * Pause time is taken off the match clock as a whole, so every player loses the
  * same paused minutes rather than the match owner tracking a per-player clock.
@@ -60,10 +65,16 @@ export function survivedMinutes(args: {
   startedAtMs: number | null;
   untilMs: number | null;
   pausedTotalMs: number;
+  /** The head start, which happens before the match clock starts scoring. */
+  headStartMinutes: number;
 }): number {
   if (args.startedAtMs === null || args.untilMs === null) return 0;
+  const headStartMs = Math.max(0, args.headStartMinutes) * MINUTE_MS;
   const ms =
-    args.untilMs - Math.max(0, args.pausedTotalMs) - args.startedAtMs;
+    args.untilMs -
+    Math.max(0, args.pausedTotalMs) -
+    args.startedAtMs -
+    headStartMs;
   return Math.max(0, Math.floor(ms / MINUTE_MS));
 }
 

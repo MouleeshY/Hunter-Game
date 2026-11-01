@@ -9,6 +9,7 @@
 import type { Doc, Id } from "../../../convex/_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../../convex/_generated/server";
 import type { RepoContext } from "../../repos/context";
+import type { UserRepository } from "../../repos/userRepo";
 import type {
   LatLng,
   MatchConfig,
@@ -184,6 +185,45 @@ function leaderboardRow(r: Doc<"leaderboard">): LeaderboardRow {
     updatedAt: r.updatedAt,
   };
 }
+
+// ---- UserRepository --------------------------------------------------------
+
+/**
+ * The profile table. Convex Auth owns account creation, so the API never calls
+ * `upsert` here — it is implemented to keep both providers on one interface.
+ * Convex assigns its own document id, which is the id the game already stores.
+ */
+export const userRepo: UserRepository = {
+  findById: async (ctx, id) => {
+    const doc = await reader(ctx).get(id as Id<"users">);
+    return doc
+      ? { id: doc._id, name: doc.name ?? null, email: doc.email ?? null }
+      : null;
+  },
+
+  upsert: async (ctx, input) => {
+    const db = writer(ctx);
+    const existing = await db.get(input.id as Id<"users">);
+    if (existing) {
+      await db.patch(existing._id, {
+        ...(input.name !== undefined ? { name: input.name ?? undefined } : {}),
+        ...(input.email !== undefined ? { email: input.email ?? undefined } : {}),
+      });
+      const next = await db.get(existing._id);
+      return {
+        id: existing._id,
+        name: next?.name ?? null,
+        email: next?.email ?? null,
+      };
+    }
+    const id = await db.insert("users", {
+      name: input.name ?? undefined,
+      email: input.email ?? undefined,
+    });
+    const doc = await db.get(id);
+    return { id, name: doc?.name ?? null, email: doc?.email ?? null };
+  },
+};
 
 // ---- MatchRepository -------------------------------------------------------
 
@@ -955,6 +995,7 @@ export const eventRepo: MatchEventRepository = {
 
 /** Every repository the server uses, implemented on Convex. */
 export const repos = {
+  users: userRepo,
   matches: matchRepo,
   players: playerRepo,
   locations: locationRepo,

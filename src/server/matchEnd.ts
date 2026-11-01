@@ -40,6 +40,31 @@ export function isEligibleHunter(player: PlayerRow): boolean {
 }
 
 /**
+ * Settle on the timer: the client's "the clock ran out" call.
+ *
+ * A match that has not ended yet is refused, so a phone with a wrong clock can
+ * never cut a match short. Settling twice is a no-op.
+ */
+export async function settleOnTimer(
+  ctx: RepoContext,
+  input: { matchId: string },
+): Promise<EndResult> {
+  const match = await getRepos().matches.findById(ctx, input.matchId);
+  if (!match) throw new Error("Match not found");
+  if (match.status === "ended") {
+    return { ended: true, winner: match.winner, alreadySettled: true };
+  }
+
+  const result = await endMatch(ctx, { matchId: match.id });
+  if (!result.ended) throw new Error("The match has not ended yet");
+  return {
+    ended: true,
+    winner: result.winner,
+    alreadySettled: result.alreadySettled,
+  };
+}
+
+/**
  * Settle a match that has ended.
  *
  * `force` is the organiser's "End match" button: the same bonuses, but without

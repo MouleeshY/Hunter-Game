@@ -140,6 +140,7 @@ function rankedRows(
             startedAtMs: match.startedAt,
             untilMs: player.taggedAt ?? match.endedAt ?? nowMs,
             pausedTotalMs: match.pausedTotalMs,
+            headStartMinutes: match.config.headStartMinutes,
           })
         : null,
       status: finalStatusOf(player),
@@ -460,6 +461,7 @@ export async function getPlayerResult(
             startedAtMs: match.startedAt,
             untilMs: me.taggedAt ?? match.endedAt ?? now,
             pausedTotalMs: match.pausedTotalMs,
+            headStartMinutes: match.config.headStartMinutes,
           })
         : null,
     status: me ? finalStatusOf(me) : null,
