@@ -1,6 +1,7 @@
 {
-  "name": "vite-template",
+  "name": "shadow-hunt",
   "private": true,
+  "description": "Urban manhunt game powered by React, Convex, and Postgres-backed services.",
   "version": "0.0.0",
   "type": "module",
   "scripts": {
