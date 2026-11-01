@@ -37,6 +37,7 @@ import type {
   MatchEventRepository,
   MatchEventRow,
 } from "../../repos/eventRepo";
+import type { Repos } from "../../repos";
 import type { DbConnection } from "./db";
 
 type Row = Record<string, unknown>;
@@ -63,6 +64,11 @@ function query<T = Row>(
 function lock(ctx: RepoContext): string {
   return pgOf(ctx).write ? " for update" : "";
 }
+
+/**
+ * Every repository, implemented on Postgres. Declared at the bottom of the
+ * file so every implementation above it is already initialised.
+ */
 
 // ---- value conversions -----------------------------------------------------
 
@@ -1061,4 +1067,19 @@ export const eventRepo: MatchEventRepository = {
     );
     return rows.length > 0;
   },
+};
+
+/** Every repository the server uses, implemented on Postgres. */
+export const repos: Repos = {
+  users: userRepo,
+  matches: matchRepo,
+  players: playerRepo,
+  locations: locationRepo,
+  tags: tagRepo,
+  complaints: complaintRepo,
+  invigilators: invigilatorRepo,
+  scores: scoreRepo,
+  leaderboard: leaderboardRepo,
+  audit: auditRepo,
+  events: eventRepo,
 };

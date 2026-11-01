@@ -277,3 +277,20 @@ export const RULES_CONFIG: MatchConfig = {
   matchTitleMaxLength: 80,
   clubNameMaxLength: 60,
 };
+
+/**
+ * How often a screen asks the HTTP API for fresh data (Stage 7).
+ *
+ * Not a game rule: it changes nothing about scoring, timing, the zone or what
+ * anyone may see — only how stale a screen is allowed to be between refetches.
+ * The optional Broadcast nudge (see `src/lib/realtime.ts`) carries no data at
+ * all, it just makes a client refetch sooner than these intervals.
+ */
+export const REFRESH_INTERVALS = {
+  /** Lobby / setup countdown. */
+  lobbyMs: 2_000,
+  /** Match state: timer, status, scores. */
+  matchMs: 3_000,
+  /** Map view. */
+  mapMs: 5_000,
+} as const;

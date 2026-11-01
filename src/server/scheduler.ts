@@ -118,7 +118,13 @@ export async function runMatchTick(
     advanced: 0,
   };
 
-  for (const match of running) {
+  for (const listed of running) {
+    // Take the match row lock before anything else: a tag landing, an upload or
+    // a second tick must not write to this match while its minutes are being
+    // paid. Convex gave this for free; on Postgres it is `select … for update`.
+    const match = (await repos.matches.findById(ctx, listed.id)) ?? listed;
+    if (match.status === "ended") continue;
+
     result.matches += 1;
 
     // Frozen: timer, zone, ping schedule and drain all stop while paused.

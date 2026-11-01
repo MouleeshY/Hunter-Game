@@ -6,7 +6,11 @@
  * `src/convex/validators.ts` so this package stays portable.
  */
 
-export { RULES_CONFIG, type MatchConfig } from "./config";
+export {
+  RULES_CONFIG,
+  REFRESH_INTERVALS,
+  type MatchConfig,
+} from "./config";
 export { BRIEFING, type Briefing, type BriefingSection } from "./briefing";
 export * from "./separation";
 export * from "./detection";

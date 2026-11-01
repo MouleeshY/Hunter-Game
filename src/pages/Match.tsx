@@ -218,7 +218,7 @@ export default function Match() {
       } else {
         setScanResult({
           ok: false,
-          message: SCAN_COPY[result.code] ?? "That scan was refused.",
+          message: SCAN_COPY[result.code ?? ""] ?? "That scan was refused.",
         });
       }
     } catch (cause) {
