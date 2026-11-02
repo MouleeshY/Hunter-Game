@@ -48,7 +48,7 @@ export async function getFeedView(
   ctx: RepoContext,
   input: { matchId: string; userId: string; nowMs?: number },
 ): Promise<FeedView> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
 
   const match = await repos.matches.findById(ctx, input.matchId);
   if (!match) throw new Error("Match not found.");
@@ -134,7 +134,7 @@ export async function recordEvent(
     refId?: string | null;
   },
 ): Promise<void> {
-  await getRepos().events.append(ctx, input);
+  await getRepos(ctx).events.append(ctx, input);
 }
 
 /**
@@ -155,7 +155,7 @@ export async function raiseHelpAlert(
     nowMs?: number;
   },
 ): Promise<{ id: string; at: number }> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const now = input.nowMs ?? Date.now();
 
   const match = await repos.matches.findById(ctx, input.matchId);

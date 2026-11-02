@@ -13,12 +13,15 @@
 --   3. Direct table privileges are revoked as well, so PostgREST cannot even
 --      describe the tables.
 --
--- The API in `/api` is the only reader and writer. It connects to Postgres with
--- the server-only pooler connection string (`DATABASE_URL`) as the database
--- owner, which bypasses RLS — the same way a backend service does in the
--- standard Supabase architecture. Realtime is NOT enabled on these tables for
--- the same reason: table replication would stream rows to subscribers. The
--- optional live nudge uses a Broadcast channel, which has no table access.
+-- The API in `/api` is the only reader and writer. `DATABASE_URL` must use the
+-- Supabase pooler `postgres` login (typically `postgres.<project-ref>`); that
+-- login maps to the `postgres` database role, which has BYPASSRLS (and is a
+-- superuser on standard Supabase projects). It can therefore access these
+-- tables despite FORCE ROW LEVEL SECURITY. Do not use the anon key or a
+-- restricted `authenticated` role for the API connection. Realtime is NOT
+-- enabled on these tables for the same reason: table replication would stream
+-- rows to subscribers. The optional live nudge uses a Broadcast channel, which
+-- has no table access.
 --
 -- `src/server/providers/postgres/rls.test.ts` fails if any table in `public`
 -- is missing RLS, forced RLS or has a policy.

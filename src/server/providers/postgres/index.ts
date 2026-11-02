@@ -28,13 +28,7 @@ import type { PgContext } from "./repos";
 import type { RepoContext } from "../../repos/context";
 import type { Repos } from "../../repos";
 
-export type { PgContext } from "./repos";
-export { postgresDb } from "./db";
 export type { Db, DbConnection } from "./db";
-export { repos };
-
-/** Every repository, implemented on Postgres. */
-export type PostgresRepos = Repos;
 
 export interface PostgresProvider {
   repos: Repos;
@@ -45,15 +39,20 @@ export interface PostgresProvider {
   close(): Promise<void>;
 }
 
-export function createPostgresProvider(db: Db): PostgresProvider {
+export function createPostgresProvider(
+  db: Db,
+  providerRepos: Repos = repos,
+): PostgresProvider {
   return {
-    repos,
+    repos: providerRepos,
     read: async (fn) => {
-      const ctx: PgContext = { conn: db, write: false };
+      const ctx: PgContext = { conn: db, write: false, repos: providerRepos };
       return fn(ctx);
     },
     transaction: (fn) =>
-      db.transaction((conn: DbConnection) => fn({ conn, write: true })),
+      db.transaction((conn: DbConnection) =>
+        fn({ conn, write: true, repos: providerRepos }),
+      ),
     close: () => db.close(),
   };
 }
@@ -77,10 +76,4 @@ export function getPostgresProvider(url?: string): PostgresProvider {
   defaultUrl = target;
   cached = createPostgresProvider(postgresDb(target));
   return cached;
-}
-
-/** Tests and scripts: point the provider at a different database. */
-export function setPostgresProviderForTests(next: PostgresProvider | null): void {
-  cached = next;
-  defaultUrl = next === null ? undefined : defaultUrl;
 }

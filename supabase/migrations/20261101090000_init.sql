@@ -6,9 +6,9 @@
 --     milliseconds at the repository boundary
 --   * a match's rule snapshot (`config`) is `jsonb`, exactly like the Convex
 --     document, so retuning the rules never rewrites a played match
---   * user ids are the Supabase Auth `auth.users.id` values. They are stored as
---     plain uuid without a foreign key, because the profile row lives in
---     `public.users` and an account may be deleted from Auth independently.
+--   * profile ids are game-domain UUIDs. The Supabase Auth identity is stored
+--     separately in `users.auth_id`, without a foreign key, because an account
+--     may be deleted from Auth independently.
 --
 -- Convex's own auth tables (`authAccounts`, `authSessions`, `authRefreshTokens`,
 -- `authVerificationCodes`, `authVerifiers`, `authRateLimits`) are replaced by
@@ -18,7 +18,8 @@
 -- ---------------------------------------------------------------- users ------
 
 create table if not exists public.users (
-  id uuid primary key,
+  id uuid primary key default gen_random_uuid(),
+  auth_id uuid not null unique,
   name text,
   image text,
   email text,
@@ -110,7 +111,7 @@ create table if not exists public.players (
   display_name_mode text not null check (display_name_mode in ('nickname', 'real')),
   -- One plain QR code per match. No photos anywhere.
   qr_token text not null,
-  points integer not null default 0,
+  points double precision not null default 0,
   joined_at timestamptz not null,
   tagged_at timestamptz,
   tagged_by_id uuid references public.players (id) on delete set null,
@@ -173,7 +174,7 @@ create table if not exists public.tags (
   capture_mode text check (capture_mode in ('spectator', 'hunter', 'helper')),
   forced boolean not null default false,
   forced_by uuid,
-  scored_points integer not null default 0,
+  scored_points double precision not null default 0,
   "at" timestamptz not null
 );
 
@@ -245,7 +246,7 @@ create table if not exists public.score_events (
   kind text not null
     check (kind in ('shadow_alive', 'tag', 'all_tagged_bonus', 'survival_bonus', 'zone_drain')),
   -- Negative for zone drains.
-  points integer not null,
+  points double precision not null,
   "at" timestamptz not null,
   source text not null check (source in ('system', 'invigilator')),
   ref_id text
@@ -276,7 +277,7 @@ create table if not exists public.leaderboard (
   player_id uuid not null references public.players (id) on delete cascade,
   display_name text not null,
   display_name_mode text not null check (display_name_mode in ('nickname', 'real')),
-  total_points integer not null,
+  total_points double precision not null,
   breakdown jsonb not null,
   updated_at timestamptz not null
 );

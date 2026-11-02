@@ -46,7 +46,7 @@ export async function getComplaintTargets(
   ctx: RepoContext,
   input: { matchId: string; userId: string },
 ): Promise<ComplaintTargets> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const [me, players, existing] = await Promise.all([
     repos.players.findByMatchAndUser(ctx, input.matchId, input.userId),
     repos.players.listByMatch(ctx, input.matchId),
@@ -99,7 +99,7 @@ export async function fileComplaint(
     nowMs?: number;
   },
 ): Promise<ComplaintRow> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const now = input.nowMs ?? Date.now();
   const incidentAt = input.incidentAtMs ?? now;
 

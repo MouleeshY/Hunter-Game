@@ -114,6 +114,7 @@ export interface TestDatabase {
 export async function createPostgresTestDatabase(): Promise<TestDatabase> {
   const pglite = new PGlite();
   await pglite.waitReady;
+  await pglite.exec("create role anon nologin");
   const db = pgliteDb(pglite);
   await applyMigrations(db);
   return {

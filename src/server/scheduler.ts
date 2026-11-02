@@ -79,7 +79,7 @@ async function awardMinute(
     ) {
       continue;
     }
-    const alreadyPaid = await getRepos().scores.existsByRef(
+    const alreadyPaid = await getRepos(ctx).scores.existsByRef(
       ctx,
       match.id,
       player.id,
@@ -109,7 +109,7 @@ export async function runMatchTick(
   ctx: RepoContext,
   nowMs: number = Date.now(),
 ): Promise<TickResult> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const running = await repos.matches.listRunning(ctx);
   const result: TickResult = {
     matches: 0,

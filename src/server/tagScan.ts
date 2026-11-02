@@ -130,7 +130,7 @@ export async function submitTagScan(
     nowMs?: number;
   },
 ): Promise<TagScanResult> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const now = input.nowMs ?? Date.now();
 
   const match = await repos.matches.findById(ctx, input.matchId);
@@ -352,7 +352,7 @@ export async function chooseCaptureMode(
     nowMs?: number;
   },
 ): Promise<{ mode: PlayerRow["mode"] }> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const now = input.nowMs ?? Date.now();
 
   const player = await repos.players.findByMatchAndUser(

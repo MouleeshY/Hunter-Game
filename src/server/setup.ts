@@ -44,7 +44,7 @@ async function samplesFor(
   match: MatchRow,
   players: PlayerRow[],
 ): Promise<(SeparationSample | null)[]> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   return await Promise.all(
     players.map(async (player) => {
       const location = await repos.locations.latestByPlayer(
@@ -81,7 +81,7 @@ export async function checkSeparation(
   ctx: RepoContext,
   input: { matchId: string; nowMs?: number },
 ): Promise<SeparationCheck> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const now = input.nowMs ?? Date.now();
   const match = await repos.matches.findById(ctx, input.matchId);
   if (!match) throw new Error("Match not found.");
@@ -126,7 +126,7 @@ export async function separationForPlayer(
   requiredMetres: number | null;
   waiting: boolean;
 }> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const now = input.nowMs ?? Date.now();
   const match = await repos.matches.findById(ctx, input.matchId);
   if (!match) throw new Error("Match not found.");
@@ -168,7 +168,7 @@ export async function advanceToHeadStart(
   ctx: RepoContext,
   input: { match: MatchRow; nowMs: number },
 ): Promise<{ startedAt: number; endsAt: number; headStartEndsAt: number }> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const { match, nowMs } = input;
   const endsAt = nowMs + match.config.matchDurationMinutes * 60_000;
   const headStartEndsAt = nowMs + match.config.headStartMinutes * 60_000;
@@ -205,7 +205,7 @@ export async function beginHeadStart(
   forced: boolean;
   violations: number;
 }> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const now = input.nowMs ?? Date.now();
   const match = await repos.matches.findById(ctx, input.matchId);
   if (!match) throw new Error("Match not found.");
@@ -280,7 +280,7 @@ export async function extendSetup(
   ctx: RepoContext,
   input: { matchId: string; userId: string; nowMs?: number },
 ): Promise<{ setupEndsAt: number; extendedBySeconds: number }> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const now = input.nowMs ?? Date.now();
   const match = await repos.matches.findById(ctx, input.matchId);
   if (!match) throw new Error("Match not found.");

@@ -18,6 +18,7 @@
 import { repos as convexRepos } from "./convex";
 import { repos as postgresRepos } from "./postgres/repos";
 import type { Repos } from "../repos";
+import type { RepoContext } from "../repos/context";
 
 export type { Repos };
 
@@ -44,8 +45,31 @@ export function setReposForTests(next: Repos | null): void {
   override = next;
 }
 
-/** The repositories for the selected provider. */
-export function getRepos(): Repos {
+/** Resolve repositories from this operation's provider context when available. */
+function isRepos(value: unknown): value is Repos {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "users" in value &&
+    "matches" in value &&
+    "players" in value &&
+    "locations" in value &&
+    "tags" in value &&
+    "complaints" in value &&
+    "invigilators" in value &&
+    "scores" in value &&
+    "leaderboard" in value &&
+    "audit" in value &&
+    "events" in value
+  );
+}
+
+/** Repositories bound to this operation context, or the selected test/provider set. */
+export function getRepos(ctx?: RepoContext): Repos {
+  if (typeof ctx === "object" && ctx !== null && "repos" in ctx) {
+    const boundRepos: unknown = ctx.repos;
+    if (isRepos(boundRepos)) return boundRepos;
+  }
   if (override !== null) return override;
   const provider = selectProvider();
   if (provider === "supabase") return postgresRepos;

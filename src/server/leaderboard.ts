@@ -28,7 +28,7 @@ export async function getLeaderboardView(
   ctx: RepoContext,
   input: { matchId: string },
 ): Promise<LeaderboardView> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const match = await repos.matches.findById(ctx, input.matchId);
   if (!match) throw new Error("Match not found");
 

@@ -72,7 +72,7 @@ async function requireMatchByCode(
   roomCode: string,
 ): Promise<MatchRow> {
   const code = normalizeRoomCode(roomCode);
-  const match = await getRepos().matches.findByRoomCode(ctx, code);
+  const match = await getRepos(ctx).matches.findByRoomCode(ctx, code);
   if (!match) throw new Error(joinRefusalMessage("unknown_room") ?? "Unknown room.");
   return match;
 }
@@ -113,7 +113,7 @@ export async function createMatch(
     clubName?: string;
   },
 ): Promise<CreatedMatch> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const config: MatchConfig = RULES_CONFIG;
 
   if (
@@ -247,7 +247,7 @@ export async function rerollCentre(
   ctx: RepoContext,
   input: { matchId: string; organiserUserId: string },
 ): Promise<{ centreLat: number; centreLng: number }> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const match = await repos.matches.findById(ctx, input.matchId);
   if (!match) throw new Error("Match not found.");
   if (match.createdByUserId !== input.organiserUserId) {
@@ -294,7 +294,7 @@ export async function joinMatch(
     displayNameMode: DisplayNameMode;
   },
 ): Promise<JoinedMatch> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const codeError = roomCodeError(input.roomCode, RULES_CONFIG);
   if (codeError) throw new Error(codeError);
 
@@ -455,7 +455,7 @@ export async function getLobby(
   ctx: RepoContext,
   input: { userId: string; roomCode: string },
 ): Promise<LobbyView> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const match = await requireMatchByCode(ctx, input.roomCode);
   const now = Date.now();
   const status = effectiveStatus(match, now);
@@ -578,7 +578,7 @@ async function organiserMatch(
   matchId: string,
   userId: string,
 ): Promise<MatchRow> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const match = await repos.matches.findById(ctx, matchId);
   if (!match) throw new Error("Match not found.");
   if (match.createdByUserId !== userId) {
@@ -592,7 +592,7 @@ export async function setRosterLock(
   ctx: RepoContext,
   input: { matchId: string; userId: string; locked: boolean },
 ): Promise<MatchStatus> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const match = await organiserMatch(ctx, input.matchId, input.userId);
   const status = effectiveStatus(match, Date.now());
 
@@ -637,7 +637,7 @@ export async function startMatch(
   ctx: RepoContext,
   input: { matchId: string; userId: string; seed?: number; force?: boolean },
 ): Promise<StartedMatch> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const match = await organiserMatch(ctx, input.matchId, input.userId);
   const players = await repos.players.listByMatch(ctx, match.id);
   const status = effectiveStatus(match, Date.now());
@@ -729,7 +729,7 @@ export async function confirmBriefing(
   ctx: RepoContext,
   input: { matchId: string; userId: string; nowMs?: number },
 ): Promise<{ briefedAt: number }> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const match = await repos.matches.findById(ctx, input.matchId);
   if (!match) throw new Error("Match not found.");
   if (match.status !== "lobby" && match.status !== "locked") {
@@ -764,7 +764,7 @@ export async function previewInvite(
   ctx: RepoContext,
   inviteCode: string,
 ): Promise<InvitePreview> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const invite = await repos.invigilators.findByInviteCode(
     ctx,
     inviteCode.trim().toUpperCase(),
@@ -785,7 +785,7 @@ export async function claimInvite(
   ctx: RepoContext,
   input: { userId: string; inviteCode: string },
 ): Promise<{ matchId: string; roomCode: string }> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const invite = await repos.invigilators.findByInviteCode(
     ctx,
     input.inviteCode.trim().toUpperCase(),

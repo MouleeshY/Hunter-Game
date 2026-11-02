@@ -43,7 +43,7 @@ async function requireInvigilator(
   matchId: string,
   userId: string,
 ): Promise<{ invigilator: InvigilatorRow; match: MatchRow }> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const match = await repos.matches.findById(ctx, matchId);
   if (!match) throw new Error("Match not found.");
   const invigilator = await repos.invigilators.findByMatchAndUser(
@@ -63,7 +63,7 @@ async function requireFreezeRights(
   matchId: string,
   userId: string,
 ): Promise<{ actor: string; match: MatchRow }> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const match = await repos.matches.findById(ctx, matchId);
   if (!match) throw new Error("Match not found.");
   if (match.createdByUserId === userId) {
@@ -95,7 +95,7 @@ async function logAction(
     at: number;
   },
 ): Promise<void> {
-  await getRepos().audit.append(ctx, {
+  await getRepos(ctx).audit.append(ctx, {
     matchId: input.match.id,
     at: input.at,
     actorUserId: input.actorUserId,
@@ -208,7 +208,7 @@ export async function getConsoleView(
   ctx: RepoContext,
   input: { matchId: string; userId: string; nowMs?: number },
 ): Promise<ConsoleView> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const now = input.nowMs ?? Date.now();
   const { invigilator, match } = await requireInvigilator(
     ctx,
@@ -391,7 +391,7 @@ export async function dismissComplaint(
     reason: string;
   },
 ): Promise<void> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const head = await loadForAction(ctx, input.matchId, input.userId);
   const complaint = await repos.complaints.listByMatch(ctx, head.match.id);
   const target = complaint.find((row) => row.id === input.complaintId);
@@ -434,7 +434,7 @@ export async function forceTag(
     reason: string;
   },
 ): Promise<{ tagId: string; points: number }> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const head = await loadForAction(ctx, input.matchId, input.userId);
   const now = head.now;
   const match = head.match;
@@ -540,7 +540,7 @@ export async function removePlayer(
   ctx: RepoContext,
   input: { matchId: string; playerId: string; userId: string; reason: string },
 ): Promise<void> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const head = await loadForAction(ctx, input.matchId, input.userId);
   const now = head.now;
   const player = await repos.players.findById(ctx, input.playerId);
@@ -585,7 +585,7 @@ export async function warnPlayer(
   ctx: RepoContext,
   input: { matchId: string; playerId: string; userId: string; reason: string },
 ): Promise<void> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const head = await loadForAction(ctx, input.matchId, input.userId);
   const player = await repos.players.findById(ctx, input.playerId);
   if (!player || player.matchId !== head.match.id) {
@@ -618,7 +618,7 @@ export async function setPlayerMode(
     reason: string;
   },
 ): Promise<void> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const head = await loadForAction(ctx, input.matchId, input.userId);
   const now = head.now;
   const player = await repos.players.findById(ctx, input.playerId);
@@ -658,7 +658,7 @@ export async function pauseMatch(
   ctx: RepoContext,
   input: { matchId: string; userId: string; reason: string },
 ): Promise<{ pausedAt: number }> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const { actor, match } = await requireFreezeRights(
     ctx,
     input.matchId,
@@ -699,7 +699,7 @@ export async function resumeMatch(
   ctx: RepoContext,
   input: { matchId: string; userId: string; reason: string },
 ): Promise<{ pausedTotalMs: number }> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const { actor, match } = await requireFreezeRights(
     ctx,
     input.matchId,
@@ -744,7 +744,7 @@ export async function endMatchEarly(
   ctx: RepoContext,
   input: { matchId: string; userId: string; reason?: string },
 ): Promise<{ winner: "hunters" | "shadows" | null }> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const match = await repos.matches.findById(ctx, input.matchId);
   if (!match) throw new Error("Match not found.");
   if (match.createdByUserId !== input.userId) {
@@ -788,7 +788,7 @@ export async function abortMatch(
   ctx: RepoContext,
   input: { matchId: string; userId: string; reason: string },
 ): Promise<{ aborted: boolean; endedAt: number }> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const { actor, match } = await requireFreezeRights(
     ctx,
     input.matchId,

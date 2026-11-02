@@ -46,6 +46,7 @@ export interface PgContext {
   conn: DbConnection;
   /** Inside a transaction that may write: row reads take `for update` locks. */
   write: boolean;
+  repos: Repos;
 }
 
 function pgOf(ctx: RepoContext): PgContext {
@@ -330,11 +331,12 @@ async function applyPatch(
 // ---- UserRepository --------------------------------------------------------
 
 export const userRepo: UserRepository = {
-  findById: async (ctx, id) => {
-    const rows = await query(ctx, `select * from users where id = $1::uuid`, [id]);
+  findByAuthId: async (ctx, authId) => {
+    const rows = await query(ctx, `select * from users where auth_id = $1::uuid`, [authId]);
     return rows[0]
       ? {
           id: str(rows[0].id),
+          authId: str(rows[0].auth_id),
           name: maybeStr(rows[0].name),
           email: maybeStr(rows[0].email),
         }
@@ -344,16 +346,17 @@ export const userRepo: UserRepository = {
   upsert: async (ctx, input) => {
     const rows = await query(
       ctx,
-      `insert into users (id, name, email)
+      `insert into users (auth_id, name, email)
        values ($1::uuid, $2, $3)
-       on conflict (id) do update set
-         name = coalesce(excluded.name, users.name),
-         email = coalesce(excluded.email, users.email)
+       on conflict (auth_id) do update set
+        name = coalesce(excluded.name, users.name),
+        email = coalesce(excluded.email, users.email)
        returning *`,
-      [input.id, input.name ?? null, input.email ?? null],
+      [input.authId, input.name ?? null, input.email ?? null],
     );
     return {
       id: str(rows[0].id),
+      authId: str(rows[0].auth_id),
       name: maybeStr(rows[0].name),
       email: maybeStr(rows[0].email),
     };

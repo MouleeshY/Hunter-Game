@@ -742,7 +742,7 @@ function repositoryContract(harness: Harness): void {
     it("creates a profile once and refreshes it", async () => {
       const created = await harness.write((ctx, repos) =>
         repos.users.upsert(ctx, {
-          id: USER_A,
+          authId: USER_A,
           name: "Amina Yusuf",
           email: "amina@example.com",
         }),
@@ -750,18 +750,19 @@ function repositoryContract(harness: Harness): void {
       expect(created.name).toBe("Amina Yusuf");
 
       const again = await harness.write((ctx, repos) =>
-        repos.users.upsert(ctx, { id: USER_A, email: "amina@new.example" }),
+        repos.users.upsert(ctx, { authId: USER_A, email: "amina@new.example" }),
       );
-      expect(again.id).toBe(USER_A);
+      expect(again.id).toBe(created.id);
+      expect(again.authId).toBe(USER_A);
       expect(again.email).toBe("amina@new.example");
       // The name was not sent this time, so it is kept.
       expect(again.name).toBe("Amina Yusuf");
 
       const found = await harness.read((ctx, repos) =>
-        repos.users.findById(ctx, USER_A),
+        repos.users.findByAuthId(ctx, USER_A),
       );
       expect(found?.name).toBe("Amina Yusuf");
-      expect(await harness.read((ctx, repos) => repos.users.findById(ctx, USER_B))).toBeNull();
+      expect(await harness.read((ctx, repos) => repos.users.findByAuthId(ctx, USER_B))).toBeNull();
     });
   });
 }

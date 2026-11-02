@@ -14,7 +14,7 @@ export async function settlePlayer(
   playerId: string,
   at: number,
 ): Promise<number> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const [events, player] = await Promise.all([
     repos.scores.listByPlayer(ctx, matchId, playerId),
     repos.players.findById(ctx, playerId),
@@ -57,7 +57,7 @@ export async function award(
     refId?: string;
   },
 ): Promise<void> {
-  await getRepos().scores.insert(ctx, {
+  await getRepos(ctx).scores.insert(ctx, {
     matchId: args.matchId,
     playerId: args.playerId,
     kind: args.kind,

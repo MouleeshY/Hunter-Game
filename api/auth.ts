@@ -7,19 +7,29 @@
  *   SUPABASE_JWT_SECRET  → HS256 with that secret (no network)
  *   SUPABASE_URL         → JWKS at <url>/auth/v1/.well-known/jwks.json
  *
- * The token's `sub` is the `auth.users.id`, which is the id the game stores on
- * `users`, `players.user_id`, `matches.created_by` and the audit trail. The
- * profile row is created on first sight so a match can always be joined by the
- * same person.
+ * The token's `sub` is the `auth.users.id`, stored as `users.auth_id`. The
+ * profile's separate `users.id` is used by game records, and the profile is
+ * created on first sight so a match can always be joined by the same person.
  */
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
+import {
+  createRemoteJWKSet,
+  decodeProtectedHeader,
+  jwtVerify,
+  type JWTPayload,
+} from "jose";
 import type { RepoContext } from "../src/server/repos/context";
 import type { Repos } from "../src/server/repos";
 
 export interface VerifiedUser {
-  userId: string;
+  /** Supabase Auth `sub` claim, mapped to a game profile by `auth_id`. */
+  authId: string;
   email: string | null;
   name: string | null;
+}
+
+export interface ResolvedUser extends VerifiedUser {
+  /** Game profile id used by players, matches and audit records. */
+  userId: string;
 }
 
 export type TokenVerifier = (token: string) => Promise<VerifiedUser>;
@@ -39,7 +49,7 @@ function userFrom(payload: JWTPayload): VerifiedUser {
           ? payload.name
           : null;
   const email = typeof payload.email === "string" ? payload.email : null;
-  return { userId: sub, email, name };
+  return { authId: sub, email, name };
 }
 
 /** A verifier for the two token flavours Supabase issues, or null if unconfigured. */
@@ -49,28 +59,27 @@ export function createVerifierFromEnv(
   ).process?.env ?? {},
 ): TokenVerifier | null {
   const secret = env.SUPABASE_JWT_SECRET;
-  if (secret) {
-    const key = new TextEncoder().encode(secret);
-    return async (token) => {
+  const url = env.SUPABASE_URL?.replace(/\/$/, "");
+  if (!secret && !url) return null;
+  const key = secret ? new TextEncoder().encode(secret) : null;
+  const jwks = url
+    ? createRemoteJWKSet(new URL(`${url}/auth/v1/.well-known/jwks.json`))
+    : null;
+
+  return async (token) => {
+    const { alg } = decodeProtectedHeader(token);
+    if (alg === "HS256" && key !== null) {
       const { payload } = await jwtVerify(token, key, {
         algorithms: ["HS256"],
       });
       return userFrom(payload);
-    };
-  }
-
-  const url = env.SUPABASE_URL?.replace(/\/$/, "");
-  if (url) {
-    const jwks = createRemoteJWKSet(
-      new URL(`${url}/auth/v1/.well-known/jwks.json`),
-    );
-    return async (token) => {
+    }
+    if (alg !== "HS256" && jwks !== null) {
       const { payload } = await jwtVerify(token, jwks);
       return userFrom(payload);
-    };
-  }
-
-  return null;
+    }
+    throw new Error("No verifier is configured for this token algorithm.");
+  };
 }
 
 /**
@@ -82,15 +91,15 @@ export async function resolveUser(
   ctx: RepoContext,
   repos: Repos,
   user: VerifiedUser,
-): Promise<VerifiedUser> {
-  const known = await repos.users.findById(ctx, user.userId);
-  if (known !== null) return user;
-  await repos.users.upsert(ctx, {
-    id: user.userId,
+): Promise<ResolvedUser> {
+  const known = await repos.users.findByAuthId(ctx, user.authId);
+  if (known !== null) return { ...user, userId: known.id };
+  const profile = await repos.users.upsert(ctx, {
+    authId: user.authId,
     name: user.name,
     email: user.email,
   });
-  return user;
+  return { ...user, userId: profile.id };
 }
 
 export function bearerToken(header: string | null | undefined): string | null {

@@ -196,7 +196,7 @@ export async function getPublicResult(
   ctx: RepoContext,
   input: { slug: string; nowMs?: number },
 ): Promise<PublicResult | null> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const slug = input.slug.trim().toLowerCase();
   if (slug.length === 0) return null;
 
@@ -228,7 +228,7 @@ export async function listPublicResults(
   ctx: RepoContext,
   input: { club?: string | null; nowMs?: number } = {},
 ): Promise<PublicResultSummary[]> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const ended = await repos.matches.listEnded(ctx);
   const published = ended.filter(isMatchResultPublic);
 
@@ -291,7 +291,7 @@ export async function getResultTools(
   ctx: RepoContext,
   input: { matchId: string; userId: string },
 ): Promise<ResultTools | null> {
-  const match = await getRepos().matches.findById(ctx, input.matchId);
+  const match = await getRepos(ctx).matches.findById(ctx, input.matchId);
   if (!match || match.createdByUserId !== input.userId) return null;
   return toolsFor(match);
 }
@@ -302,7 +302,7 @@ export async function getResultToolsBySlug(
   input: { slug: string; userId: string | null },
 ): Promise<ResultTools | null> {
   if (input.userId === null) return null;
-  const match = await getRepos().matches.findByPublicSlug(
+  const match = await getRepos(ctx).matches.findByPublicSlug(
     ctx,
     input.slug.trim().toLowerCase(),
   );
@@ -323,7 +323,7 @@ export async function setResultPublished(
     nowMs?: number;
   },
 ): Promise<{ published: boolean }> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const now = input.nowMs ?? Date.now();
 
   const match = await repos.matches.findById(ctx, input.matchId);
@@ -400,7 +400,7 @@ export async function getPlayerResult(
   ctx: RepoContext,
   input: { matchId: string; userId: string; nowMs?: number },
 ): Promise<PlayerResult> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const now = input.nowMs ?? Date.now();
 
   const match = await repos.matches.findById(ctx, input.matchId);
@@ -469,4 +469,3 @@ export async function getPlayerResult(
     publicSlug: isMatchResultPublic(match) ? match.publicSlug : null,
   };
 }
-

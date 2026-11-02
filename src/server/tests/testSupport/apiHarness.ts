@@ -11,6 +11,8 @@ import {
   createPostgresTestDatabase,
   type TestDatabase,
 } from "./pglite";
+import { createPostgresProvider } from "../../providers/postgres";
+import type { Repos } from "../../repos";
 
 export const TICK_SECRET = "unit-test-tick-secret";
 const JWT_SECRET = "unit-test-jwt-secret";
@@ -58,10 +60,16 @@ function headers(options?: {
   return result;
 }
 
-export async function createApiHarness(): Promise<ApiHarness> {
+export async function createApiHarness(
+  providerRepos?: Repos,
+): Promise<ApiHarness> {
   const db = await createPostgresTestDatabase();
+  const provider =
+    providerRepos === undefined
+      ? db.provider
+      : createPostgresProvider(db.db, providerRepos);
   const app = createApiApp({
-    provider: db.provider,
+    provider,
     verify: async (token: string) => {
       const { jwtVerify } = await import("jose");
       const { payload } = await jwtVerify(
@@ -70,8 +78,11 @@ export async function createApiHarness(): Promise<ApiHarness> {
         { algorithms: ["HS256"] },
       );
       const metadata = (payload.user_metadata ?? {}) as Record<string, unknown>;
+      if (typeof payload.sub !== "string") {
+        throw new Error("Token has no subject.");
+      }
       return {
-        userId: payload.sub as string,
+        authId: payload.sub,
         email: typeof payload.email === "string" ? payload.email : null,
         name: typeof metadata.full_name === "string" ? metadata.full_name : null,
       };

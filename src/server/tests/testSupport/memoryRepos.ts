@@ -32,11 +32,15 @@ export function memoryRepos(): Repos {
 
   return {
     users: {
-      findById: async (_ctx, id) => users.get(id) ?? null,
+      findByAuthId: async (_ctx, authId) =>
+        [...users.values()].find((user) => user.authId === authId) ?? null,
       upsert: async (_ctx, input) => {
-        const existing = users.get(input.id);
+        const existing = [...users.values()].find(
+          (user) => user.authId === input.authId,
+        );
         const row: UserRow = {
-          id: input.id,
+          id: existing?.id ?? nextId("user"),
+          authId: input.authId,
           name: input.name ?? existing?.name ?? null,
           email: input.email ?? existing?.email ?? null,
         };

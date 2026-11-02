@@ -194,16 +194,21 @@ function leaderboardRow(r: Doc<"leaderboard">): LeaderboardRow {
  * Convex assigns its own document id, which is the id the game already stores.
  */
 export const userRepo: UserRepository = {
-  findById: async (ctx, id) => {
-    const doc = await reader(ctx).get(id as Id<"users">);
+  findByAuthId: async (ctx, authId) => {
+    const doc = await reader(ctx).get(authId as Id<"users">);
     return doc
-      ? { id: doc._id, name: doc.name ?? null, email: doc.email ?? null }
+      ? {
+          id: doc._id,
+          authId: doc._id,
+          name: doc.name ?? null,
+          email: doc.email ?? null,
+        }
       : null;
   },
 
   upsert: async (ctx, input) => {
     const db = writer(ctx);
-    const existing = await db.get(input.id as Id<"users">);
+    const existing = await db.get(input.authId as Id<"users">);
     if (existing) {
       await db.patch(existing._id, {
         ...(input.name !== undefined ? { name: input.name ?? undefined } : {}),
@@ -212,6 +217,7 @@ export const userRepo: UserRepository = {
       const next = await db.get(existing._id);
       return {
         id: existing._id,
+        authId: existing._id,
         name: next?.name ?? null,
         email: next?.email ?? null,
       };
@@ -221,7 +227,7 @@ export const userRepo: UserRepository = {
       email: input.email ?? undefined,
     });
     const doc = await db.get(id);
-    return { id, name: doc?.name ?? null, email: doc?.email ?? null };
+    return { id, authId: id, name: doc?.name ?? null, email: doc?.email ?? null };
   },
 };
 

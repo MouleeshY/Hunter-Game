@@ -156,7 +156,7 @@ async function checkProximity(
   );
   if (candidates.length === 0) return;
 
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const prior = await repos.events.listByMatchAndKind(
     ctx,
     match.id,
@@ -264,7 +264,7 @@ export async function uploadPosition(
     nowMs?: number;
   },
 ): Promise<PositionUploadResult> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   assertLatLng(input.lat, input.lng);
 
   const match = await repos.matches.findById(ctx, input.matchId);
@@ -513,7 +513,7 @@ export async function purgeExpiredPositions(
   ctx: RepoContext,
   nowMs: number = Date.now(),
 ): Promise<{ matches: number; deleted: number }> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const cutoff =
     nowMs - RULES_CONFIG.positionRetentionHours * 60 * 60 * 1000;
   const ended = await repos.matches.listEndedBefore(ctx, cutoff);
@@ -627,7 +627,7 @@ async function locationFor(
   mode: VisibilityMode,
   args: { lastPingAtMs: number | null },
 ): Promise<LocationRow | null> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   if (mode === "ping") {
     if (args.lastPingAtMs === null) return null;
     return await repos.locations.latestByPlayerBefore(
@@ -649,7 +649,7 @@ export async function getMapView(
   ctx: RepoContext,
   input: { matchId: string; userId: string; nowMs?: number },
 ): Promise<MapView> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const now = input.nowMs ?? Date.now();
 
   const match = await repos.matches.findById(ctx, input.matchId);

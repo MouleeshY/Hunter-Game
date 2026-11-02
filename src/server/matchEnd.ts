@@ -49,7 +49,7 @@ export async function settleOnTimer(
   ctx: RepoContext,
   input: { matchId: string },
 ): Promise<EndResult> {
-  const match = await getRepos().matches.findById(ctx, input.matchId);
+  const match = await getRepos(ctx).matches.findById(ctx, input.matchId);
   if (!match) throw new Error("Match not found");
   if (match.status === "ended") {
     return { ended: true, winner: match.winner, alreadySettled: true };
@@ -81,7 +81,7 @@ export async function endMatch(
     refId?: string;
   },
 ): Promise<EndResult> {
-  const repos = getRepos();
+  const repos = getRepos(ctx);
   const now = input.nowMs ?? Date.now();
 
   const match = await repos.matches.findById(ctx, input.matchId);

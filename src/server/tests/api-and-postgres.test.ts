@@ -9,10 +9,14 @@
  *   - the pg_cron / pg_net schedule, which cannot run in-process
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { createApiHarness, TICK_SECRET, type ApiHarness } from "./testSupport/apiHarness";
 import { createApiApp } from "../../../api/app";
+import { createVerifierFromEnv } from "../../../api/auth";
+import type { Repos } from "../repos";
 import { nudgeChannelName, nudgeMessage } from "../../lib/realtime";
 import { REFRESH_INTERVALS, RULES_CONFIG } from "../../rules";
 
@@ -40,7 +44,7 @@ let api: ApiHarness;
 async function seedProfiles(): Promise<void> {
   for (const id of [ORGANISER, INVIGILATOR, ...PLAYERS, STRANGER]) {
     await api.db.query(
-      `insert into users (id, name) values ($1::uuid, $2)
+      `insert into users (id, auth_id, name) values ($1::uuid, $1::uuid, $2)
        on conflict (id) do nothing`,
       [id, "Test user"],
     );
@@ -119,6 +123,37 @@ function iso(ms: number): string {
   return new Date(ms).toISOString();
 }
 
+function guardedRepos(base: Repos): Repos {
+  const assertContext = (ctx: unknown, expected: Repos) => {
+    if (
+      typeof ctx !== "object" ||
+      ctx === null ||
+      !("repos" in ctx) ||
+      ctx.repos !== expected
+    ) {
+      throw new Error("API used another app's repositories.");
+    }
+  };
+  const bound: Repos = {
+    ...base,
+    users: {
+      ...base.users,
+      findByAuthId: async (ctx, authId) => {
+        assertContext(ctx, bound);
+        return base.users.findByAuthId(ctx, authId);
+      },
+    },
+    matches: {
+      ...base.matches,
+      create: async (ctx, input) => {
+        assertContext(ctx, bound);
+        return base.matches.create(ctx, input);
+      },
+    },
+  };
+  return bound;
+}
+
 /** Put the match on the live clock, `minutesIn` minutes old, with fresh positions. */
 async function goLive(matchId: string, minutesIn = 25): Promise<void> {
   const startedAt = Date.now() - minutesIn * MINUTE;
@@ -138,7 +173,7 @@ async function goLive(matchId: string, minutesIn = 25): Promise<void> {
       [
         matchId,
         row.id,
-        COORD.lat + Math.random() * 0.001,
+        COORD.lat + 0.00001,
         COORD.lng,
         iso(Date.now() - 5000),
       ],
@@ -257,17 +292,18 @@ describe("the API runs the game against Postgres", () => {
       { matchId: room.matchId, reason: "Time is up." },
       { token: organiser },
     );
-    const endedJson = jsonObject<{ ended: boolean }>(ended.json);
-    expect(endedJson.ended).toBe(true);
+    const endedJson = jsonObject<{ winner: "hunters" | "shadows" | null }>(ended.json);
+    expect(endedJson.winner).toBe("shadows");
 
-    // ---- the public page, before and after publishing --------------------
+    // ---- the public page defaults to public once a match ends ------------
     const beforePublish = await api.post(
       "/api/results/public",
       { slug: room.publicSlug },
       { token: null },
     );
     expect(beforePublish.status).toBe(200);
-    expect(beforePublish.json).toBeNull();
+    const automaticResult = jsonObject<{ rows: unknown[] }>(beforePublish.json);
+    expect(automaticResult.rows).toHaveLength(PLAYERS.length);
 
     const publish = await api.post(
       "/api/results/publish",
@@ -489,13 +525,11 @@ describe("row level security", () => {
     expect(Number(policies[0].count)).toBe(0);
   });
 
-  it("keeps the browser roles out of the tables entirely", async () => {
+  it("a client with only the anon key cannot read any game table", async () => {
     const roles = await api.db.query<{ rolname: string }>(
       `select rolname from pg_roles where rolname in ('anon', 'authenticated')`,
     );
-    // PGlite has no Supabase roles, so this only proves the guard in the
-    // migration is inert here; on a real project the revoke runs.
-    expect(roles.length).toBeLessThanOrEqual(2);
+    expect(roles.map((role) => role.rolname)).toContain("anon");
 
     const granted = await api.db.query<{ count: string }>(
       `select count(*)::text as count
@@ -505,6 +539,44 @@ describe("row level security", () => {
           and privilege_type in ('SELECT', 'INSERT', 'UPDATE', 'DELETE')`,
     );
     expect(Number(granted[0].count)).toBe(0);
+
+    // Supabase's anon-key JWT selects this same database role in PostgREST.
+    await api.db.query("set role anon");
+    try {
+      for (const table of [
+        "audit_log",
+        "complaints",
+        "invigilators",
+        "leaderboard",
+        "locations",
+        "match_events",
+        "matches",
+        "players",
+        "score_events",
+        "tags",
+        "users",
+      ]) {
+        await expect(
+          api.db.query(`select * from public.${table} limit 1`),
+        ).rejects.toThrow();
+      }
+    } finally {
+      await api.db.query("reset role");
+    }
+  });
+
+  it("uses a postgres database role that bypasses forced RLS", async () => {
+    const [role] = await api.db.query<{
+      current_user: string;
+      rolsuper: boolean;
+      rolbypassrls: boolean;
+    }>(
+      `select current_user, rolsuper, rolbypassrls
+         from pg_roles
+        where rolname = current_user`,
+    );
+    expect(role.current_user).toBe("postgres");
+    expect(role.rolsuper || role.rolbypassrls).toBe(true);
   });
 });
 
@@ -565,12 +637,22 @@ describe("concurrent requests", () => {
         token: await api.token(hunters[0].user_id),
       }),
     ]);
+    expect(results.map((result) => result.status)).toEqual([200, 200]);
 
     const accepted = results.filter((result) => {
       const resultJson = jsonObject<{ ok?: boolean }>(result.json);
       return resultJson.ok === true;
     });
     expect(accepted).toHaveLength(1);
+    const refused = results.filter((result) => {
+      const resultJson = jsonObject<{ ok?: boolean }>(result.json);
+      return resultJson.ok === false;
+    });
+    expect(refused).toHaveLength(1);
+    expect(refused[0].status).toBe(200);
+    expect(typeof jsonObject<{ code?: string }>(refused[0].json).code).toBe(
+      "string",
+    );
 
     const tags = await api.db.query<{ status: string }>(
       `select status from tags where match_id = $1::uuid`,
@@ -782,6 +864,12 @@ describe("the scheduler endpoint", () => {
     );
 
     const players = await playerRows(room.matchId);
+    const expiredAt =
+      Date.now() - (RULES_CONFIG.positionRetentionHours + 1) * 60 * MINUTE;
+    await api.db.query(
+      `update matches set ended_at = $1::timestamptz where id = $2::uuid`,
+      [iso(expiredAt), room.matchId],
+    );
     await api.db.query(
       `insert into locations (match_id, player_id, lat, lng, accuracy_metres, recorded_at, ping_index)
        values ($1::uuid, $2::uuid, $3, $4, 8, $5::timestamptz, 0)`,
@@ -790,7 +878,7 @@ describe("the scheduler endpoint", () => {
         players[0].id,
         COORD.lat,
         COORD.lng,
-        iso(Date.now() - (RULES_CONFIG.positionRetentionHours + 1) * 60 * MINUTE),
+        iso(expiredAt),
       ],
     );
 
@@ -823,6 +911,63 @@ describe("the scheduler endpoint", () => {
  * ------------------------------------------------------------------------ */
 
 describe("live updates", () => {
+  it("verifies HS256 and asymmetric JWKS tokens when both are configured", async () => {
+    const { privateKey, publicKey } = await generateKeyPair("ES256");
+    const jwk = await exportJWK(publicKey);
+    jwk.kid = "stage-7a-test";
+    jwk.alg = "ES256";
+    jwk.use = "sig";
+
+    const server = createServer((request, response) => {
+      if (request.url !== "/auth/v1/.well-known/jwks.json") {
+        response.writeHead(404).end();
+        return;
+      }
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ keys: [jwk] }));
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+
+    try {
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        throw new Error("Could not read the local JWKS server address.");
+      }
+      const verify = createVerifierFromEnv({
+        SUPABASE_JWT_SECRET: "stage-7a-hs256-secret",
+        SUPABASE_URL: `http://127.0.0.1:${address.port}`,
+      });
+      if (verify === null) throw new Error("Verifier was not configured.");
+
+      const hsToken = await new SignJWT({})
+        .setProtectedHeader({ alg: "HS256" })
+        .setSubject("11111111-1111-4111-8111-111111111111")
+        .setIssuedAt()
+        .setExpirationTime("2h")
+        .sign(new TextEncoder().encode("stage-7a-hs256-secret"));
+      const esToken = await new SignJWT({})
+        .setProtectedHeader({ alg: "ES256", kid: "stage-7a-test" })
+        .setSubject("22222222-2222-4222-8222-222222222222")
+        .setIssuedAt()
+        .setExpirationTime("2h")
+        .sign(privateKey);
+
+      expect((await verify(hsToken)).authId).toBe(
+        "11111111-1111-4111-8111-111111111111",
+      );
+      expect((await verify(esToken)).authId).toBe(
+        "22222222-2222-4222-8222-222222222222",
+      );
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
   it("publishes a nudge with no payload at all", () => {
     const nudge = nudgeMessage();
     expect(nudge).toEqual({ type: "changed" });
@@ -881,13 +1026,73 @@ describe("live updates", () => {
     );
     expect(joined.status).toBe(200);
 
-    const rows = await api.db.query<{ name: string; email: string }>(
-      `select name, email from users where id = $1::uuid`,
+    const rows = await api.db.query<{
+      id: string;
+      auth_id: string;
+      name: string;
+      email: string;
+    }>(
+      `select id, auth_id, name, email from users where auth_id = $1::uuid`,
       [unseen],
     );
     expect(rows).toHaveLength(1);
+    expect(rows[0].id).not.toBe(unseen);
+    expect(rows[0].auth_id).toBe(unseen);
     expect(rows[0].name).toBe("New Player");
     expect(rows[0].email).toBe("new@example.com");
+    await expect(
+      api.db.query(`insert into users (auth_id) values ($1::uuid)`, [unseen]),
+    ).rejects.toThrow();
+
+    const playerRows = await api.db.query<{ user_id: string }>(
+      `select user_id from players where match_id = $1::uuid and user_id = $2::uuid`,
+      [room.matchId, rows[0].id],
+    );
+    expect(playerRows).toHaveLength(1);
+  });
+
+  it("keeps two API apps bound to their own Postgres provider", async () => {
+    const baseRepos = api.db.provider.repos;
+    const [firstApi, secondApi] = await Promise.all([
+      createApiHarness(guardedRepos(baseRepos)),
+      createApiHarness(guardedRepos(baseRepos)),
+    ]);
+    const body = {
+      matchDurationMinutes: 60,
+      organiserLat: COORD.lat,
+      organiserLng: COORD.lng,
+      invigilatorNames: ["Ines", "Kwame"],
+      title: "Provider isolation",
+      clubName: "Provider isolation",
+    };
+
+    try {
+      const [first, second] = await Promise.all([
+        firstApi.post("/api/rooms/createRoom", body, {
+          token: await firstApi.token(ORGANISER),
+        }),
+        secondApi.post("/api/rooms/createRoom", body, {
+          token: await secondApi.token(ORGANISER),
+        }),
+      ]);
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+
+      const [firstRows, secondRows] = await Promise.all([
+        firstApi.db.query<{ count: string }>(
+          `select count(*)::text as count from matches where title = $1`,
+          [body.title],
+        ),
+        secondApi.db.query<{ count: string }>(
+          `select count(*)::text as count from matches where title = $1`,
+          [body.title],
+        ),
+      ]);
+      expect(Number(firstRows[0].count)).toBe(1);
+      expect(Number(secondRows[0].count)).toBe(1);
+    } finally {
+      await Promise.all([firstApi.close(), secondApi.close()]);
+    }
   });
 });
 
