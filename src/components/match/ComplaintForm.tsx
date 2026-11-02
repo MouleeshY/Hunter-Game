@@ -1,7 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQuery } from "convex/react";
-import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import { useComplaintTargets, useMutation } from "@/client/api";
 import { Button } from "@/components/ui/button";
 
 /**
@@ -21,10 +19,9 @@ export function ComplaintForm({
   onClose: () => void;
   onFiled: () => void;
 }) {
-  const targets = useQuery(api.complaints.complaintTargets, {
-    matchId: matchId as Id<"matches">,
-  });
-  const file = useMutation(api.complaints.file);
+  const targetsQuery = useComplaintTargets(matchId);
+  const targets = targetsQuery.data;
+  const file = useMutation("fileComplaint");
 
   const [accusedId, setAccusedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -36,8 +33,8 @@ export function ComplaintForm({
     setBusy(true);
     try {
       await file({
-        matchId: matchId as Id<"matches">,
-        accusedId: accusedId as Id<"players">,
+        matchId,
+        accusedId,
         incidentAtMs: Date.now(),
       });
       onFiled();
@@ -64,7 +61,9 @@ export function ComplaintForm({
       </div>
 
       {targets === undefined && (
-        <p className="mt-4 text-[13px] text-muted-foreground">Loading…</p>
+        <p className="mt-4 text-[13px] text-muted-foreground">
+          {targetsQuery.error?.message ?? "Loading…"}
+        </p>
       )}
 
       {targets && !targets.isHunter && (

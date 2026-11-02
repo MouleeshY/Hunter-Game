@@ -74,6 +74,12 @@ export default defineConfig({
     // Bind to all interfaces so the browser runtime's server-ready event fires.
     host: true,
     port: 5173,
+    proxy: {
+      "/api": {
+        target: "http://127.0.0.1:8787",
+        changeOrigin: true,
+      },
+    },
     // Keep HMR on, but disable full-screen error overlay
     hmr: {
       overlay: false,

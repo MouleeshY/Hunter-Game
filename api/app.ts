@@ -66,6 +66,7 @@ import {
 import { runMatchTick } from "../src/server/scheduler";
 import type { PostgresProvider } from "../src/server/providers/postgres";
 import type { RepoContext } from "../src/server/repos/context";
+import { getRepos } from "../src/server/providers";
 import {
   bearerToken,
   createVerifierFromEnv,
@@ -83,6 +84,7 @@ export interface ApiDeps {
   /** Verifies the Supabase JWT. Null means "no token can be verified here". */
   verify: TokenVerifier | null;
   tickSecret: string | undefined;
+  publishNudge?: (matchId: string) => Promise<void>;
 }
 
 type Auth = "public" | "user" | "optional" | "secret";
@@ -93,6 +95,7 @@ interface RouteSpec<A> {
   args: z.ZodType<A>;
   /** Inside one database transaction, with row locks (a mutating call). */
   write: boolean;
+  nudgeMatchIds?: (ctx: RepoContext) => Promise<string[]>;
   handler: (ctx: RepoContext, args: A, user: ResolvedUser | null) => unknown | Promise<unknown>;
 }
 
@@ -102,7 +105,7 @@ function isServiceError(cause: unknown): cause is Error {
 
 export function createApiApp(deps: ApiDeps): Hono {
   const app = new Hono();
-  const { provider, verify, tickSecret } = deps;
+  const { provider, verify, tickSecret, publishNudge } = deps;
 
   function route<A>(spec: RouteSpec<A>): void {
     const handle = async (body: unknown, header: (name: string) => string | null): Promise<{ status: number; json: unknown }> => {
@@ -156,9 +159,13 @@ export function createApiApp(deps: ApiDeps): Hono {
         return { status: 400, json: { error: "Invalid request." } };
       }
 
+      let nudgeMatchIds: string[] = [];
       const execute = async (ctx: RepoContext): Promise<unknown> => {
         const resolved =
           user === null ? null : await resolveUser(ctx, provider.repos, user);
+        if (write && spec.nudgeMatchIds !== undefined) {
+          nudgeMatchIds = await spec.nudgeMatchIds(ctx);
+        }
         return spec.handler(ctx, parsed.data, resolved);
       };
 
@@ -166,6 +173,29 @@ export function createApiApp(deps: ApiDeps): Hono {
         const result = write
           ? await provider.transaction(execute)
           : await provider.read(execute);
+        const matchId =
+          typeof parsed.data === "object" &&
+          parsed.data !== null &&
+          "matchId" in parsed.data &&
+          typeof parsed.data.matchId === "string"
+            ? parsed.data.matchId
+            : typeof result === "object" &&
+                result !== null &&
+                "matchId" in result &&
+                typeof result.matchId === "string"
+              ? result.matchId
+              : null;
+        if (write && publishNudge !== undefined) {
+          const targets = new Set(nudgeMatchIds);
+          if (matchId !== null) targets.add(matchId);
+          for (const target of targets) {
+            try {
+              await publishNudge(target);
+            } catch (cause) {
+              console.error("Could not publish match change notification.", cause);
+            }
+          }
+        }
         return { status: 200, json: result ?? null };
       } catch (cause) {
         if (!isServiceError(cause)) throw cause;
@@ -187,6 +217,19 @@ export function createApiApp(deps: ApiDeps): Hono {
   }
 
   // ---------------------------------------------------------------- rooms ---
+
+  route({
+    path: "/api/users/ensure",
+    auth: "user",
+    args: args.noArgs,
+    write: true,
+    handler: (_ctx, _a, user) => ({
+      id: user!.userId,
+      authId: user!.authId,
+      name: user!.name,
+      email: user!.email,
+    }),
+  });
 
   route({
     path: "/api/rooms/createRoom",
@@ -693,6 +736,8 @@ export function createApiApp(deps: ApiDeps): Hono {
     auth: "secret",
     args: args.noArgs,
     write: true,
+    nudgeMatchIds: async (ctx) =>
+      (await getRepos(ctx).matches.listRunning(ctx)).map((match) => match.id),
     handler: (ctx) => runMatchTick(ctx),
   });
 

@@ -15,6 +15,8 @@
 import { createApiApp } from "./app";
 import { createVerifierFromEnv } from "./auth";
 import { getPostgresProvider } from "../src/server/providers/postgres";
+import { createClient } from "@supabase/supabase-js";
+import { nudgeChannelName, nudgeMessage } from "../src/lib/realtime";
 import type { Hono } from "hono";
 
 export { createApiApp } from "./app";
@@ -24,16 +26,44 @@ export type ApiEnv = {
   DATABASE_URL?: string;
   SUPABASE_JWT_SECRET?: string;
   SUPABASE_URL?: string;
+  SUPABASE_SERVICE_ROLE_KEY?: string;
   TICK_SECRET?: string;
   DATA_PROVIDER?: string;
 };
 
 /** The app, wired to the process environment. */
 export function createApp(env: ApiEnv = process.env as ApiEnv): Hono {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error(
+      "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required by the API to publish Realtime nudges.",
+    );
+  }
+  const supabase = createClient(
+    env.SUPABASE_URL,
+    env.SUPABASE_SERVICE_ROLE_KEY,
+    { auth: { autoRefreshToken: false, persistSession: false } },
+  );
   return createApiApp({
     provider: getPostgresProvider(env.DATABASE_URL),
     verify: createVerifierFromEnv(env),
     tickSecret: env.TICK_SECRET,
+    publishNudge: async (matchId) => {
+      const channel = supabase.channel(nudgeChannelName(matchId), {
+        config: { broadcast: { self: false } },
+      });
+      try {
+        const result = await channel.send({
+          type: "broadcast",
+          event: "changed",
+          payload: nudgeMessage(),
+        });
+        if (result !== "ok") {
+          throw new Error(`Realtime broadcast returned "${result}".`);
+        }
+      } finally {
+        await supabase.removeChannel(channel);
+      }
+    },
   });
 }
 

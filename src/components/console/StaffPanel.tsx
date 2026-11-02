@@ -1,10 +1,8 @@
 import { useState } from "react";
-import { useMutation } from "convex/react";
-import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import { useMutation } from "@/client/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { MapView } from "@/server/positionService";
+import type { MapView } from "@/client/api";
 
 /**
  * The organiser's status board (Stage 5, task 8): who is in, who has confirmed
@@ -17,10 +15,10 @@ import type { MapView } from "@/server/positionService";
 export function StaffPanel(props: { view: MapView; nowMs: number }) {
   const { view, nowMs } = props;
   const staff = view.staff;
-  const pause = useMutation(api.rooms.pauseRoom);
-  const resume = useMutation(api.rooms.resumeRoom);
-  const end = useMutation(api.rooms.endRoom);
-  const abort = useMutation(api.rooms.abortRoom);
+  const pause = useMutation("pauseRoom");
+  const resume = useMutation("resumeRoom");
+  const end = useMutation("endRoom");
+  const abort = useMutation("abortRoom");
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -122,11 +120,11 @@ export function StaffPanel(props: { view: MapView; nowMs: number }) {
                 () =>
                   view.paused
                     ? resume({
-                        matchId: view.matchId as Id<"matches">,
+                        matchId: view.matchId,
                         reason: "Resumed by the organiser.",
                       })
                     : pause({
-                        matchId: view.matchId as Id<"matches">,
+                        matchId: view.matchId,
                         reason: "Paused by the organiser.",
                       }),
                 "Could not pause or resume.",
@@ -163,7 +161,7 @@ export function StaffPanel(props: { view: MapView; nowMs: number }) {
               onClick={() =>
                 void run(async () => {
                   await end({
-                    matchId: view.matchId as Id<"matches">,
+                    matchId: view.matchId,
                     reason: "Ended by the organiser.",
                   });
                   setEndConfirm(false);
@@ -218,7 +216,7 @@ export function StaffPanel(props: { view: MapView; nowMs: number }) {
                 onClick={() =>
                   void run(async () => {
                     await abort({
-                      matchId: view.matchId as Id<"matches">,
+                      matchId: view.matchId,
                       reason: reason.trim(),
                     });
                     setAbortOpen(false);

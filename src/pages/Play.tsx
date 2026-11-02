@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { useMutation, useQuery } from "convex/react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { api } from "@/convex/_generated/api";
+import { useManagedResult, useMutation, useLobby } from "@/client/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -107,7 +106,7 @@ function CreateRoomForm({
   onCreated: (roomCode: string) => void;
   onBack: () => void;
 }) {
-  const createRoom = useMutation(api.rooms.createRoom);
+  const createRoom = useMutation("createRoom");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -329,7 +328,7 @@ function JoinRoomForm({
   onJoined: (roomCode: string) => void;
   onBack: () => void;
 }) {
-  const joinRoom = useMutation(api.rooms.joinRoom);
+  const joinRoom = useMutation("joinRoom");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -484,24 +483,23 @@ function LobbyView({
   roomCode: string;
   onLeave: () => void;
 }) {
-  const lobby = useQuery(api.rooms.lobby, { roomCode });
-  const lockRoster = useMutation(api.rooms.lockRoster);
-  const startRoom = useMutation(api.rooms.startRoom);
-  const beginHeadStart = useMutation(api.rooms.beginHeadStartRoom);
-  const extendSetup = useMutation(api.rooms.extendSetupRoom);
-  const rerollCentre = useMutation(api.rooms.rerollCentreHandler);
-  const endRoom = useMutation(api.rooms.endRoom);
-  const abortRoom = useMutation(api.rooms.abortRoom);
-  const pauseRoom = useMutation(api.rooms.pauseRoom);
-  const resumeRoom = useMutation(api.rooms.resumeRoom);
-  const publishResult = useMutation(api.results.publish);
+  const lobbyQuery = useLobby(roomCode);
+  const lobby = lobbyQuery.data;
+  const lockRoster = useMutation("lockRoster");
+  const startRoom = useMutation("startRoom");
+  const beginHeadStart = useMutation("beginHeadStart");
+  const extendSetup = useMutation("extendSetup");
+  const rerollCentre = useMutation("rerollCentre");
+  const endRoom = useMutation("endRoom");
+  const abortRoom = useMutation("abortRoom");
+  const pauseRoom = useMutation("pauseRoom");
+  const resumeRoom = useMutation("resumeRoom");
+  const publishResult = useMutation("publishResult");
   // Stage 6: the organiser's result link and publishing switch, once ended.
-  const resultTools = useQuery(
-    api.results.manage,
-    lobby && lobby.me.isOrganiser && lobby.status === "ended" && lobby.matchId
-      ? { matchId: lobby.matchId as never }
-      : "skip",
+  const resultToolsQuery = useManagedResult(
+    lobby?.me.isOrganiser && lobby.status === "ended" ? lobby.matchId : null,
   );
+  const resultTools = resultToolsQuery.data;
   const now = useNow();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -513,7 +511,7 @@ function LobbyView({
   if (lobby === undefined) {
     return (
       <p className="text-center text-[13px] uppercase tracking-[0.18em] text-muted-foreground">
-        Loading the lobby…
+        {lobbyQuery.error?.message ?? "Loading the lobby…"}
       </p>
     );
   }
@@ -571,7 +569,7 @@ function LobbyView({
 
       {lobby.me.playerId !== null && lobby.me.briefedAt === null && (
         <Briefing
-          matchId={lobby.matchId as never}
+          matchId={lobby.matchId}
           confirmedAt={lobby.me.briefedAt}
         />
       )}
@@ -713,7 +711,7 @@ function LobbyView({
                 onClick={() =>
                   run(
                     () =>
-                      rerollCentre({ matchId: lobby.matchId as never }),
+                      rerollCentre({ matchId: lobby.matchId }),
                     "Could not re-roll the play area.",
                   )
                 }
@@ -849,11 +847,13 @@ function LobbyView({
               className="h-11 uppercase tracking-[0.18em]"
               onClick={() =>
                 run(
-                  () =>
-                    publishResult({
-                      matchId: resultTools.matchId as never,
+                  async () => {
+                    await publishResult({
+                      matchId: resultTools.matchId,
                       publish: !resultTools.public,
-                    }),
+                    });
+                    await resultToolsQuery.refetch();
+                  },
                   "Could not change the result's visibility.",
                 )
               }
@@ -895,7 +895,7 @@ function LobbyView({
                   run(
                     () =>
                       lockRoster({
-                        matchId: lobby.matchId as never,
+                        matchId: lobby.matchId,
                         locked: lobby.status === "lobby",
                       }),
                     "Could not change the roster lock.",
@@ -911,7 +911,7 @@ function LobbyView({
                 className="h-11 uppercase tracking-[0.18em]"
                 onClick={() =>
                   run(
-                    () => startRoom({ matchId: lobby.matchId as never }),
+                    () => startRoom({ matchId: lobby.matchId }),
                     "Could not start the setup period.",
                   )
                 }
@@ -933,7 +933,7 @@ function LobbyView({
                     onClick={() =>
                       void run(async () => {
                         await startRoom({
-                          matchId: lobby.matchId as never,
+                          matchId: lobby.matchId,
                           force: true,
                         });
                         setForceStart(false);
@@ -980,7 +980,7 @@ function LobbyView({
               className="h-11 uppercase tracking-[0.18em]"
               onClick={() =>
                 run(
-                  () => extendSetup({ matchId: lobby.matchId as never }),
+                  () => extendSetup({ matchId: lobby.matchId }),
                   "Could not extend the setup period.",
                 )
               }
@@ -1000,7 +1000,7 @@ function LobbyView({
                   onClick={() =>
                     void run(async () => {
                       await beginHeadStart({
-                        matchId: lobby.matchId as never,
+                        matchId: lobby.matchId,
                         force: true,
                       });
                       setForceHeadStart(false);
@@ -1028,7 +1028,7 @@ function LobbyView({
                 onClick={() =>
                   void run(async () => {
                     try {
-                      await beginHeadStart({ matchId: lobby.matchId as never });
+                      await beginHeadStart({ matchId: lobby.matchId });
                     } catch (cause) {
                       const message =
                         cause instanceof Error
@@ -1082,11 +1082,11 @@ function LobbyView({
                     () =>
                       lobby.paused
                         ? resumeRoom({
-                            matchId: lobby.matchId as never,
+                            matchId: lobby.matchId,
                             reason: "Resumed by the organiser.",
                           })
                         : pauseRoom({
-                            matchId: lobby.matchId as never,
+                            matchId: lobby.matchId,
                             reason: "Paused by the organiser.",
                           }),
                     "Could not pause or resume.",
@@ -1106,7 +1106,7 @@ function LobbyView({
                   run(
                     () =>
                       endRoom({
-                        matchId: lobby.matchId as never,
+                        matchId: lobby.matchId,
                         reason: "Ended by the organiser.",
                       }),
                     "Could not end the match.",
@@ -1137,7 +1137,7 @@ function LobbyView({
                     onClick={() =>
                       void run(async () => {
                         await abortRoom({
-                          matchId: lobby.matchId as never,
+                          matchId: lobby.matchId,
                           reason: abortReason.trim(),
                         });
                         setAbortOpen(false);
@@ -1191,7 +1191,7 @@ function LobbyView({
               onClick={() =>
                 void run(async () => {
                   await abortRoom({
-                    matchId: lobby.matchId as never,
+                    matchId: lobby.matchId,
                     reason: abortReason.trim(),
                   });
                   setAbortOpen(false);

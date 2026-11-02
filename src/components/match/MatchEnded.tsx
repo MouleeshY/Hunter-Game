@@ -1,7 +1,6 @@
 import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
-import type { MapView } from "@/server/positionService";
-import type { PlayerResult } from "@/server/results";
+import type { MapView, PlayerResult } from "@/client/api";
 
 function winnerLine(view: MapView): { headline: string; detail: string } {
   if (view.endReason === "aborted") {
@@ -77,7 +76,7 @@ export function MatchEnded(props: {
               Your points
             </p>
             <p className="mt-1 font-display text-2xl tabular-nums">
-              {view.me.points}
+              {Math.round(view.me.points)}
             </p>
           </div>
           <div className="rounded-lg border border-hairline p-4">

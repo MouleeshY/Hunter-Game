@@ -1,7 +1,5 @@
 import { useState } from "react";
-import { useMutation } from "convex/react";
-import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import { useMutation } from "@/client/api";
 import type { PlayerMode } from "@/rules/types";
 import { Button } from "@/components/ui/button";
 
@@ -41,7 +39,7 @@ export function CaptureChoice({
   defaultMode: PlayerMode;
   onChosen: () => void;
 }) {
-  const choose = useMutation(api.matches.chooseCaptureMode);
+  const choose = useMutation("chooseCaptureMode");
   const [selected, setSelected] = useState<PlayerMode>(defaultMode);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -51,7 +49,7 @@ export function CaptureChoice({
     setBusy(true);
     try {
       await choose({
-        matchId: matchId as Id<"matches">,
+        matchId,
         mode: selected,
       });
       onChosen();

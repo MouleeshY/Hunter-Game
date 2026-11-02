@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { useMutation, useQuery } from "convex/react";
-import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import {
+  useConsoleView,
+  useInvitePreview,
+  useMutation,
+} from "@/client/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,13 +20,10 @@ function InviteGate() {
   const [params, setParams] = useSearchParams();
   const [code, setCode] = useState(params.get("code") ?? "");
   const [error, setError] = useState<string | null>(null);
-  const acceptInvite = useMutation(api.rooms.acceptInvite);
+  const acceptInvite = useMutation("acceptInvite");
 
   const trimmed = code.trim().toUpperCase();
-  const preview = useQuery(
-    api.rooms.invitePreview,
-    trimmed.length > 0 ? { inviteCode: trimmed } : "skip",
-  );
+  const preview = useInvitePreview(trimmed.length > 0 ? trimmed : null).data;
 
   return (
     <div className="mx-auto max-w-2xl rounded-xl border border-hairline p-6">
@@ -228,16 +227,15 @@ const ACTION_COPY: Record<PendingAction["kind"], string> = {
 };
 
 function Console({ matchId, onLeave }: { matchId: string; onLeave: () => void }) {
-  const view = useQuery(api.monitor.view, {
-    matchId: matchId as Id<"matches">,
-  });
-  const dismiss = useMutation(api.monitor.dismiss);
-  const force = useMutation(api.monitor.force);
-  const warn = useMutation(api.monitor.warn);
-  const remove = useMutation(api.monitor.remove);
-  const changeMode = useMutation(api.monitor.changeMode);
-  const pause = useMutation(api.monitor.pause);
-  const resume = useMutation(api.monitor.resume);
+  const viewQuery = useConsoleView(matchId);
+  const view = viewQuery.data;
+  const dismiss = useMutation("dismissComplaint");
+  const force = useMutation("forceTag");
+  const warn = useMutation("warnPlayer");
+  const remove = useMutation("removePlayer");
+  const changeMode = useMutation("changeMode");
+  const pause = useMutation("pauseConsole");
+  const resume = useMutation("resumeConsole");
 
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [busy, setBusy] = useState(false);
@@ -252,7 +250,7 @@ function Console({ matchId, onLeave }: { matchId: string; onLeave: () => void })
   if (view === undefined) {
     return (
       <p className="text-center text-[13px] uppercase tracking-[0.18em] text-muted-foreground">
-        Opening the console…
+        {viewQuery.error?.message ?? "Opening the console…"}
       </p>
     );
   }
@@ -290,40 +288,40 @@ function Console({ matchId, onLeave }: { matchId: string; onLeave: () => void })
     try {
       if (action.kind === "dismiss") {
         await dismiss({
-          matchId: matchId as Id<"matches">,
-          complaintId: action.playerIds!.playerId as Id<"complaints">,
+          matchId,
+          complaintId: action.playerIds!.playerId!,
           reason,
         });
       } else if (action.kind === "force") {
         await force({
-          matchId: matchId as Id<"matches">,
-          hunterId: action.playerIds!.hunterId as Id<"players">,
-          shadowId: action.playerIds!.shadowId as Id<"players">,
+          matchId,
+          hunterId: action.playerIds!.hunterId!,
+          shadowId: action.playerIds!.shadowId!,
           reason,
         });
       } else if (action.kind === "warn") {
         await warn({
-          matchId: matchId as Id<"matches">,
-          playerId: action.playerIds!.playerId as Id<"players">,
+          matchId,
+          playerId: action.playerIds!.playerId!,
           reason,
         });
       } else if (action.kind === "remove") {
         await remove({
-          matchId: matchId as Id<"matches">,
-          playerId: action.playerIds!.playerId as Id<"players">,
+          matchId,
+          playerId: action.playerIds!.playerId!,
           reason,
         });
       } else if (action.kind === "mode") {
         await changeMode({
-          matchId: matchId as Id<"matches">,
-          playerId: action.playerIds!.playerId as Id<"players">,
+          matchId,
+          playerId: action.playerIds!.playerId!,
           mode: action.mode!,
           reason,
         });
       } else if (action.kind === "pause") {
-        await pause({ matchId: matchId as Id<"matches">, reason });
+        await pause({ matchId, reason });
       } else if (action.kind === "resume") {
-        await resume({ matchId: matchId as Id<"matches">, reason });
+        await resume({ matchId, reason });
       }
       setPending(null);
     } catch (cause) {
@@ -626,7 +624,7 @@ function Console({ matchId, onLeave }: { matchId: string; onLeave: () => void })
                   <td className="py-2 pr-3">{player.role}</td>
                   <td className="py-2 pr-3">{player.mode}</td>
                   <td className="py-2 pr-3">{player.status}</td>
-                  <td className="py-2 pr-3 text-right">{player.points}</td>
+                  <td className="py-2 pr-3 text-right">{Math.round(player.points)}</td>
                   <td className="py-2 pr-3 text-right">
                     {player.outsideSeconds}
                   </td>

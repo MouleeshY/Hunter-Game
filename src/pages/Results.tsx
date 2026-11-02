@@ -1,9 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
-import { useMutation, useQuery } from "convex/react";
 import QRCode from "qrcode";
-import { api } from "@/convex/_generated/api";
-import type { PublicResult, PublicResultRow } from "@/server/results";
+import {
+  useMutation,
+  usePublicResult,
+  usePublicResults,
+  useResultTools,
+} from "@/client/api";
+import type { PublicResult, PublicResultRow } from "@/client/api";
 import { Button } from "@/components/ui/button";
 
 /* ------------------------------------------------------------------ *
@@ -85,7 +89,7 @@ function toCsv(result: PublicResult): string {
       row.rank,
       row.displayName,
       row.role,
-      row.points,
+      Math.round(row.points),
       row.status,
     ]),
   ];
@@ -225,7 +229,7 @@ function ResultTable({ rows }: { rows: PublicResultRow[] }) {
               <td className="py-3 pr-4 text-[13px] text-muted-foreground">
                 {row.role === "hunter" ? "Hunter" : "Shadow"}
               </td>
-              <td className="py-3 pr-4 text-[15px] tabular-nums">{row.points}</td>
+              <td className="py-3 pr-4 text-[15px] tabular-nums">{Math.round(row.points)}</td>
               <td className="py-3 pr-4 text-[13px] tabular-nums text-muted-foreground">
                 {row.tags ?? "—"}
               </td>
@@ -250,9 +254,10 @@ function ResultTable({ rows }: { rows: PublicResultRow[] }) {
  * ------------------------------------------------------------------ */
 
 function MatchResult({ slug }: { slug: string }) {
-  const result = useQuery(api.results.getPublic, { slug });
-  const tools = useQuery(api.results.tools, { slug });
-  const publish = useMutation(api.results.publish);
+  const resultQuery = usePublicResult(slug);
+  const result = resultQuery.data;
+  const tools = useResultTools(slug).data;
+  const publish = useMutation("publishResult");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -270,7 +275,7 @@ function MatchResult({ slug }: { slug: string }) {
     return (
       <Shell>
         <p className="text-[13px] uppercase tracking-[0.18em] text-muted-foreground">
-          Loading the result…
+          {resultQuery.error?.message ?? "Loading the result…"}
         </p>
       </Shell>
     );
@@ -412,7 +417,7 @@ function MatchResult({ slug }: { slug: string }) {
                 onClick={() => {
                   setError(null);
                   setBusy(true);
-                  publish({ matchId: tools.matchId as never, publish: !tools.public })
+                  publish({ matchId: tools.matchId, publish: !tools.public })
                     .catch((cause: unknown) => {
                       setError(
                         cause instanceof Error
@@ -459,7 +464,8 @@ function MatchResult({ slug }: { slug: string }) {
 function ResultList() {
   const [params] = useSearchParams();
   const club = params.get("club");
-  const results = useQuery(api.results.listPublic, club ? { club } : {});
+  const resultsQuery = usePublicResults(club);
+  const results = resultsQuery.data;
   useNoIndex(club ? `${club} results · Shadow Hunt` : "Results · Shadow Hunt");
 
   return (
@@ -479,7 +485,7 @@ function ResultList() {
 
       {results === undefined ? (
         <p className="mt-8 text-[13px] uppercase tracking-[0.18em] text-muted-foreground">
-          Loading…
+          {resultsQuery.error?.message ?? "Loading…"}
         </p>
       ) : results.length === 0 ? (
         <p className="mt-8 text-[14px] text-muted-foreground">

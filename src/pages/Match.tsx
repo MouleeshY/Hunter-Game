@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { useMutation, useQuery } from "convex/react";
-import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import {
+  useFeed,
+  useMapView,
+  useMatchView,
+  useMutation,
+  usePlayerResult,
+  useLobby,
+} from "@/client/api";
 import { Button } from "@/components/ui/button";
 import { GameMap, type MapMarkerInput } from "@/components/map/GameMap";
 import { QrCard } from "@/components/match/QrCard";
@@ -68,21 +73,17 @@ type Panel = "none" | "qr" | "scan" | "complaint";
 export default function Match() {
   const { roomCode = "" } = useParams();
   const navigate = useNavigate();
-  const lobby = useQuery(
-    api.rooms.lobby,
-    roomCode ? { roomCode: roomCode.toUpperCase() } : "skip",
-  );
+  const lobbyQuery = useLobby(roomCode || null);
+  const lobby = lobbyQuery.data;
   const matchId = lobby?.matchId ?? null;
-  const view = useQuery(
-    api.map.view,
-    matchId ? { matchId: matchId as Id<"matches"> } : "skip",
-  );
-  const feed = useQuery(
-    api.events.feed,
-    matchId ? { matchId: matchId as Id<"matches"> } : "skip",
-  );
-  const scan = useMutation(api.matches.submitTagScan);
-  const sendHelp = useMutation(api.events.help);
+  const viewQuery = useMatchView(matchId);
+  const view = viewQuery.data;
+  const mapQuery = useMapView(matchId);
+  const mapView = mapQuery.data;
+  const feedQuery = useFeed(matchId);
+  const feed = feedQuery.data;
+  const scan = useMutation("submitScan");
+  const sendHelp = useMutation("sendHelp");
 
   // The match's own config snapshot — never the default RULES_CONFIG.
   const config = view?.config ?? RULES_CONFIG;
@@ -100,10 +101,7 @@ export default function Match() {
 
   // Stage 6: the frozen end screen's own numbers (points breakdown, rank, who
   // caught whom). Loaded only once the whistle has gone.
-  const myResult = useQuery(
-    api.results.mine,
-    ended && matchId ? { matchId: matchId as Id<"matches"> } : "skip",
-  );
+  const myResult = usePlayerResult(ended ? matchId : null).data;
 
   // Countdowns run on the server clock, never the phone's.
   const now = useServerClock({
@@ -201,7 +199,7 @@ export default function Match() {
     }
     try {
       const result = await scan({
-        matchId: matchId as Id<"matches">,
+        matchId,
         scannedToken: token,
         scannerLat: fix.lat,
         scannerLng: fix.lng,
@@ -210,7 +208,7 @@ export default function Match() {
       if (result.ok) {
         setScanResult({
           ok: true,
-          message: `Tagged ${Math.round(result.distanceMetres ?? 0)} m away · +${result.points} points${
+          message: `Tagged ${Math.round(result.distanceMetres ?? 0)} m away · +${Math.round(result.points)} points${
             result.matchEnded ? " · match over" : ""
           }`,
         });
@@ -234,7 +232,7 @@ export default function Match() {
     setHelpState(null);
     try {
       await sendHelp({
-        matchId: matchId as Id<"matches">,
+        matchId,
         lat: fix?.lat,
         lng: fix?.lng,
         accuracyMetres: fix?.accuracy,
@@ -258,15 +256,22 @@ export default function Match() {
     );
   }
 
-  if (lobby === undefined || view === undefined || feed === undefined) {
+  if (
+    lobby === undefined ||
+    view === undefined ||
+    mapView === undefined ||
+    feed === undefined
+  ) {
+    const error =
+      lobbyQuery.error ?? viewQuery.error ?? mapQuery.error ?? feedQuery.error;
     return (
       <p className="px-4 py-16 text-center text-[13px] uppercase tracking-[0.18em] text-muted-foreground">
-        Loading the match…
+        {error ? error.message : "Loading the match…"}
       </p>
     );
   }
 
-  if (lobby === null || view === null) {
+  if (lobby === null || view === null || mapView === null) {
     return (
       <main className="mx-auto max-w-xl px-4 py-16 text-center">
         <p className="text-[13px] text-muted-foreground">
@@ -307,8 +312,8 @@ export default function Match() {
     Math.ceil(config.graceSeconds - secondsOutsideNow),
   );
 
-  const markers: MapMarkerInput[] = view.markers.map(
-    (marker: (typeof view.markers)[number]) => ({
+  const markers: MapMarkerInput[] = mapView.markers.map(
+    (marker: (typeof mapView.markers)[number]) => ({
       id: marker.playerId,
       lat: marker.lat,
       lng: marker.lng,
@@ -395,7 +400,7 @@ export default function Match() {
             {needsBriefing && (
               <div className="mb-4">
                 <Briefing
-                  matchId={matchId as Id<"matches"> | null}
+                  matchId={matchId}
                   confirmedAt={me.briefedAt}
                 />
               </div>
@@ -403,11 +408,11 @@ export default function Match() {
 
             <MatchHud view={view} nowMs={now} />
 
-            {setupActive && (
+            {setupActive && matchId !== null && (
               <div className="mt-4">
                 <SetupPanel
                   view={view}
-                  matchId={matchId as Id<"matches">}
+                  matchId={matchId}
                   nowMs={now}
                 />
               </div>
@@ -438,8 +443,8 @@ export default function Match() {
 
             <div className="mt-4">
               <GameMap
-                centre={{ lat: view.zone.centreLat, lng: view.zone.centreLng }}
-                radiusMetres={view.zone.radiusMetres}
+                centre={{ lat: mapView.zone.centreLat, lng: mapView.zone.centreLng }}
+                radiusMetres={mapView.zone.radiusMetres}
                 markers={markers}
                 pulseKey={pulseKey}
                 className="h-[420px]"
@@ -447,10 +452,10 @@ export default function Match() {
             </div>
 
             {/* ---- Capture choice ----------------------------------------- */}
-            {live && needsCaptureChoice && panel === "none" && (
+            {live && matchId !== null && needsCaptureChoice && panel === "none" && (
               <div className="mt-4">
                 <CaptureChoice
-                  matchId={matchId as Id<"matches">}
+                  matchId={matchId}
                   defaultMode={me.mode ?? "spectator"}
                   onChosen={() => setScanResult(null)}
                 />
@@ -532,7 +537,7 @@ export default function Match() {
             {panel === "complaint" && matchId && (
               <div className="mt-4">
                 <ComplaintForm
-                  matchId={matchId as Id<"matches">}
+                  matchId={matchId}
                   onClose={() => setPanel("none")}
                   onFiled={() => {
                     setPanel("none");

@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useMutation } from "convex/react";
-import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import { useMutation } from "@/client/api";
 import type { MatchConfig } from "@/rules/config";
 import type { GpsFix, GpsStatus } from "./useGeolocation";
 
@@ -31,7 +29,7 @@ export function usePositionUpload(args: {
   pulse?: number;
 }): UploadState {
   const { matchId, enabled, fix, gpsStatus, config, pulse = 0 } = args;
-  const upload = useMutation(api.matches.uploadPosition);
+  const upload = useMutation("uploadPosition");
   const [state, setState] = useState<UploadState>({
     lastSentAt: null,
     lastError: null,
@@ -55,7 +53,7 @@ export function usePositionUpload(args: {
       uploading.current = true;
       try {
         const result = await upload({
-          matchId: matchId as Id<"matches">,
+          matchId,
           lat: current.lat,
           lng: current.lng,
           accuracyMetres: current.accuracy,

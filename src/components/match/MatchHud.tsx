@@ -1,4 +1,4 @@
-import type { MapView } from "@/server/positionService";
+import type { MapView } from "@/client/api";
 
 export function formatCountdown(ms: number | null): string {
   if (ms === null) return "—";
@@ -138,7 +138,7 @@ export function MatchHud(props: { view: MapView; nowMs: number }) {
         {me.role === "shadow" && me.status === "active" && (
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <p className="text-[20px] font-semibold">
-              Your score: {me.points} points
+              Your score: {Math.round(me.points)} points
             </p>
             <p className="text-[15px] text-muted-foreground">
               Surviving for {survived}

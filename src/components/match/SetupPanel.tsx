@@ -1,9 +1,7 @@
 import { useState } from "react";
-import { useMutation } from "convex/react";
-import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import { useMutation } from "@/client/api";
 import { Button } from "@/components/ui/button";
-import type { MapView } from "@/server/positionService";
+import type { MapView } from "@/client/api";
 
 /**
  * The setup countdown (Stage 5 add-on, condition 1).
@@ -20,13 +18,13 @@ import type { MapView } from "@/server/positionService";
  */
 export function SetupPanel(props: {
   view: MapView;
-  matchId: Id<"matches">;
+  matchId: string;
   nowMs: number;
 }) {
   const { view, matchId, nowMs } = props;
   const setup = view.setup;
-  const extend = useMutation(api.rooms.extendSetupRoom);
-  const begin = useMutation(api.rooms.beginHeadStartRoom);
+  const extend = useMutation("extendSetup");
+  const begin = useMutation("beginHeadStart");
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

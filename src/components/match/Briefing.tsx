@@ -1,7 +1,5 @@
 import { useState } from "react";
-import { useMutation } from "convex/react";
-import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import { useAcknowledgeBriefing } from "@/client/api";
 import { Button } from "@/components/ui/button";
 import { BRIEFING } from "@/rules/briefing";
 
@@ -13,12 +11,12 @@ import { BRIEFING } from "@/rules/briefing";
  * live in `src/rules/briefing.ts` — one file to edit.
  */
 export function Briefing(props: {
-  matchId: Id<"matches"> | null;
+  matchId: string | null;
   confirmedAt: number | null;
   onConfirmed?: () => void;
 }) {
   const { matchId, confirmedAt, onConfirmed } = props;
-  const acknowledge = useMutation(api.rooms.acknowledgeBriefing);
+  const acknowledge = useAcknowledgeBriefing();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(confirmedAt === null);
